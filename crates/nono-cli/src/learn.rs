@@ -16,8 +16,6 @@ use std::collections::{HashMap, HashSet};
 #[cfg(target_os = "linux")]
 use std::io::{BufRead, BufReader};
 #[cfg(target_os = "linux")]
-use std::net::IpAddr;
-#[cfg(target_os = "linux")]
 use std::path::Path;
 #[cfg(target_os = "linux")]
 use std::process::{Command, Stdio};
