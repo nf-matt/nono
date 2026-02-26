@@ -431,7 +431,7 @@ fn run_sandbox(
             proxy_credentials,
             custom_credentials: prepared.custom_credentials,
             external_proxy: args.external_proxy.clone(),
-            allow_bind_ports: args.allow_bind.clone(),
+            allow_bind_ports: args.allow_bind,
         },
     )
 }
@@ -713,10 +713,7 @@ fn execute_sandboxed(
         // Include allow_bind_ports so the sandboxed process can listen on those ports
         // while still routing outbound HTTP through the credential injection proxy.
         let port = handle.port;
-        caps.set_network_mode_mut(nono::NetworkMode::ProxyOnly {
-            port,
-            bind_ports: flags.allow_bind_ports.clone(),
-        });
+        // Log before moving allow_bind_ports
         if flags.allow_bind_ports.is_empty() {
             info!("Network proxy started on localhost:{}", port);
         } else {
@@ -725,6 +722,10 @@ fn execute_sandboxed(
                 port, flags.allow_bind_ports
             );
         }
+        caps.set_network_mode_mut(nono::NetworkMode::ProxyOnly {
+            port,
+            bind_ports: flags.allow_bind_ports,
+        });
 
         // Collect proxy env vars for the child process
         for (k, v) in handle.env_vars() {
