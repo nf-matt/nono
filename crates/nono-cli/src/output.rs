@@ -308,20 +308,51 @@ fn detect_install_command() -> &'static str {
     "cargo install nono-cli"
 }
 
+/// Strip ANSI escape sequences and non-printable characters from a string.
+///
+/// Prevents terminal injection from a compromised update server.
+fn sanitize_terminal_output(s: &str) -> String {
+    let mut result = String::with_capacity(s.len());
+    let mut chars = s.chars();
+    while let Some(c) = chars.next() {
+        if c == '\x1b' {
+            // Skip ESC and the entire escape sequence
+            if let Some(next) = chars.next() {
+                if next == '[' {
+                    // CSI sequence: skip until a letter is found
+                    for seq_char in chars.by_ref() {
+                        if seq_char.is_ascii_alphabetic() {
+                            break;
+                        }
+                    }
+                }
+                // OSC, other sequences: already consumed the next char, continue
+            }
+        } else if c.is_control() && c != '\n' {
+            // Strip control characters (except newline)
+        } else {
+            result.push(c);
+        }
+    }
+    result
+}
+
 /// Print update notification if a newer version is available
 pub fn print_update_notification(info: &crate::update_check::UpdateInfo, silent: bool) {
     if silent {
         return;
     }
 
+    let version = sanitize_terminal_output(&info.latest_version);
     eprintln!(
         "  {} nono {} is available (current: {})",
         "Update:".yellow().bold(),
-        info.latest_version.green(),
+        version.green(),
         env!("CARGO_PKG_VERSION"),
     );
     if let Some(ref msg) = info.message {
-        eprintln!("  {}", msg.truecolor(150, 150, 150));
+        let safe_msg = sanitize_terminal_output(msg);
+        eprintln!("  {}", safe_msg.truecolor(150, 150, 150));
     }
     let install_cmd = detect_install_command();
     eprintln!(
@@ -329,7 +360,8 @@ pub fn print_update_notification(info: &crate::update_check::UpdateInfo, silent:
         format!("Run: {install_cmd}").truecolor(150, 150, 150)
     );
     if let Some(ref url) = info.release_url {
-        eprintln!("  {}", url.truecolor(100, 100, 100));
+        let safe_url = sanitize_terminal_output(url);
+        eprintln!("  {}", safe_url.truecolor(100, 100, 100));
     }
     eprintln!();
 }
