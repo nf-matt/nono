@@ -1,5 +1,16 @@
 # Changelog
 
+## [0.9.0] - 2026-03-03
+
+### Bug Fixes
+
+- Prevent --net-block bypass via proxy credential activation (#202) ([#202](https://github.com/always-further/nono/pull/202))
+
+
+### Features
+
+- Rollback preflight with auto-exclude and walk budget (#200) ([#200](https://github.com/always-further/nono/pull/200))
+
 ## [0.8.1] - 2026-03-03
 
 ### Miscellaneous
