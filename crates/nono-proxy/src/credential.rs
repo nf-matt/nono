@@ -9,7 +9,7 @@ use crate::config::{InjectMode, RouteConfig};
 use crate::error::{ProxyError, Result};
 use base64::Engine;
 use std::collections::HashMap;
-use tracing::debug;
+use tracing::{debug, warn};
 use zeroize::Zeroizing;
 
 /// A loaded credential ready for injection.
@@ -66,7 +66,12 @@ impl CredentialStore {
     /// Load credentials for all configured routes from the system keystore.
     ///
     /// Routes without a `credential_key` are skipped (no credential injection).
-    /// Returns an error if any configured credential fails to load.
+    /// Routes whose credential is not found (e.g. unset env var) are skipped
+    /// with a warning — this allows profiles to declare optional credentials
+    /// without failing when they are unavailable.
+    ///
+    /// Returns an error only for hard failures (keystore access errors,
+    /// config parse errors, non-UTF-8 values).
     pub fn load(routes: &[RouteConfig]) -> Result<Self> {
         let mut credentials = HashMap::new();
 
@@ -77,8 +82,17 @@ impl CredentialStore {
                     route.prefix, route.inject_mode
                 );
 
-                let secret = nono::keystore::load_secret_by_ref(KEYRING_SERVICE, key)
-                    .map_err(|e| ProxyError::Credential(e.to_string()))?;
+                let secret = match nono::keystore::load_secret_by_ref(KEYRING_SERVICE, key) {
+                    Ok(s) => s,
+                    Err(nono::NonoError::SecretNotFound(msg)) => {
+                        warn!(
+                            "Credential '{}' not available, skipping route: {}",
+                            route.prefix, msg
+                        );
+                        continue;
+                    }
+                    Err(e) => return Err(ProxyError::Credential(e.to_string())),
+                };
 
                 // Format header value based on mode
                 let header_value = match route.inject_mode {
