@@ -153,6 +153,11 @@ impl CapabilitySetExt for CapabilitySet {
             });
         }
 
+        // Localhost IPC ports
+        for port in &args.allow_port {
+            caps.add_localhost_port(*port);
+        }
+
         // Command allow/block lists
         for cmd in &args.allow_command {
             caps.add_allowed_command(cmd.clone());
@@ -382,6 +387,11 @@ fn add_cli_overrides(caps: &mut CapabilitySet, args: &SandboxArgs) -> Result<()>
         });
     }
 
+    // Localhost IPC ports from CLI
+    for port in &args.allow_port {
+        caps.add_localhost_port(*port);
+    }
+
     // Command allow/block from CLI
     for cmd in &args.allow_command {
         caps.add_allowed_command(cmd.clone());
@@ -426,6 +436,7 @@ mod tests {
             verbose: 0,
             dry_run: false,
             allow_bind: vec![],
+            allow_port: vec![],
             proxy_port: None,
         };
 
@@ -459,6 +470,7 @@ mod tests {
             verbose: 0,
             dry_run: false,
             allow_bind: vec![],
+            allow_port: vec![],
             proxy_port: None,
         };
 
@@ -491,6 +503,7 @@ mod tests {
             verbose: 0,
             dry_run: false,
             allow_bind: vec![],
+            allow_port: vec![],
             proxy_port: None,
         };
 
@@ -527,6 +540,7 @@ mod tests {
             verbose: 0,
             dry_run: false,
             allow_bind: vec![],
+            allow_port: vec![],
             proxy_port: None,
         };
 
@@ -577,6 +591,7 @@ mod tests {
             verbose: 0,
             dry_run: false,
             allow_bind: vec![],
+            allow_port: vec![],
             proxy_port: None,
         };
 
@@ -621,6 +636,7 @@ mod tests {
             verbose: 0,
             dry_run: false,
             allow_bind: vec![],
+            allow_port: vec![],
             proxy_port: None,
         };
 
@@ -710,6 +726,7 @@ mod tests {
             verbose: 0,
             dry_run: false,
             allow_bind: vec![],
+            allow_port: vec![],
             proxy_port: None,
         };
 
@@ -777,6 +794,7 @@ mod tests {
             verbose: 0,
             dry_run: false,
             allow_bind: vec![],
+            allow_port: vec![],
             proxy_port: None,
         };
 

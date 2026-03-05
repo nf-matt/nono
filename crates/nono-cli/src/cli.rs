@@ -255,6 +255,13 @@ pub struct SandboxArgs {
     #[arg(long, value_name = "PORT")]
     pub allow_bind: Vec<u16>,
 
+    /// Allow bidirectional localhost TCP on a specific port.
+    /// The sandboxed process can both connect to and listen on 127.0.0.1:PORT.
+    /// Use for IPC between sandboxed processes (e.g., MCP servers).
+    /// Can be specified multiple times for multiple ports.
+    #[arg(long, value_name = "PORT")]
+    pub allow_port: Vec<u16>,
+
     /// Chain through an external (enterprise) proxy.
     /// Format: host:port (e.g., squid.corp.internal:3128)
     #[arg(long, value_name = "HOST:PORT")]
@@ -1283,6 +1290,27 @@ mod tests {
         match cli.command {
             Commands::Run(args) => {
                 assert_eq!(args.sandbox.override_deny.len(), 2);
+            }
+            _ => panic!("Expected Run command"),
+        }
+    }
+
+    #[test]
+    fn test_allow_port_parsing() {
+        let cli = Cli::parse_from([
+            "nono",
+            "run",
+            "--allow-port",
+            "3000",
+            "--allow-port",
+            "5000",
+            "--allow",
+            ".",
+            "echo",
+        ]);
+        match cli.command {
+            Commands::Run(args) => {
+                assert_eq!(args.sandbox.allow_port, vec![3000, 5000]);
             }
             _ => panic!("Expected Run command"),
         }

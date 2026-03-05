@@ -223,6 +223,7 @@ fn run_why(args: WhyArgs) -> Result<()> {
             verbose: 0,
             dry_run: false,
             allow_bind: vec![],
+            allow_port: vec![],
             proxy_port: None,
         };
 
@@ -256,6 +257,7 @@ fn run_why(args: WhyArgs) -> Result<()> {
             verbose: 0,
             dry_run: false,
             allow_bind: vec![],
+            allow_port: vec![],
             proxy_port: None,
         };
 
