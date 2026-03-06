@@ -564,6 +564,15 @@ pub enum ProfileSignalMode {
     AllowAll,
 }
 
+impl From<ProfileSignalMode> for nono::SignalMode {
+    fn from(val: ProfileSignalMode) -> Self {
+        match val {
+            ProfileSignalMode::Isolated => nono::SignalMode::Isolated,
+            ProfileSignalMode::AllowAll => nono::SignalMode::AllowAll,
+        }
+    }
+}
+
 #[derive(Debug, Clone, Default, PartialEq, Eq, Deserialize)]
 #[serde(rename_all = "lowercase")]
 pub enum WorkdirAccess {
