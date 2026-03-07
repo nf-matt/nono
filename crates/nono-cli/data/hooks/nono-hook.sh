@@ -151,11 +151,17 @@ fi
 
 is_covered() {
     local path="$1"
+    local canon_path
+    canon_path=$(canonicalize_path "$path")
     while IFS= read -r cap_entry; do
-        local apath
+        local apath canon_apath
         apath=$(printf '%s\n' "$cap_entry" | jq -r '.path' 2>/dev/null)
         [ -z "$apath" ] && continue
-        if [[ "$path" == "$apath" ]] || [[ "$path" == "$apath/"* ]]; then
+        canon_apath=$(canonicalize_path "$apath")
+        if [[ "$path" == "$apath" ]] || [[ "$path" == "$apath/"* ]] || \
+           [[ "$path" == "$canon_apath" ]] || [[ "$path" == "$canon_apath/"* ]] || \
+           [[ "$canon_path" == "$apath" ]] || [[ "$canon_path" == "$apath/"* ]] || \
+           [[ "$canon_path" == "$canon_apath" ]] || [[ "$canon_path" == "$canon_apath/"* ]]; then
             return 0
         fi
     done < <(jq -c '.fs[]' "$NONO_CAP_FILE" 2>/dev/null)
