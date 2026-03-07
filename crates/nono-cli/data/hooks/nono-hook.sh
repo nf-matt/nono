@@ -46,7 +46,7 @@ ALL_TEXT=$(printf '%s\n' "$INPUT" | jq -r '.. | strings' 2>/dev/null)
 # ---------------------------------------------------------------------------
 
 # Strong: OS-level access denial
-STRONG_PAT='[Oo]peration not permitted|[Pp]ermission denied|[Rr]ead-only file system|[Aa]ccess denied|AccessDeniedException|UnauthorizedAccessException|error\.AccessDenied|error\.PermissionDenied|don.t have permission|doesn.t have permission'
+STRONG_PAT="[Oo]peration not permitted|[Pp]ermission denied|[Rr]ead-only file system|[Aa]ccess denied|AccessDeniedException|UnauthorizedAccessException|error\\.AccessDenied|error\\.PermissionDenied|don't have permission|doesn't have permission"
 
 # Weak: ENOENT-class — ambiguous; nono can surface blocked paths as ENOENT
 WEAK_PAT='[Nn]o such file or directory|ENOENT|[Cc]annot find module|[Mm]odule not found|[Nn]o module named|FileNotFoundException|[Cc]ould not find file|error\.FileNotFound|error\.PathNotFound'
@@ -70,7 +70,7 @@ fi
 canonicalize_path() {
     local path="$1"
     if command -v python3 &>/dev/null; then
-        python3 -c "import os; print(os.path.realpath('$path'))" 2>/dev/null && return
+        path="$path" python3 -c "import os; print(os.path.realpath(os.environ['path']))" 2>/dev/null && return
     fi
     # Bash fallback: walk up to deepest existing ancestor, then reassemble with pwd -P
     local existing="$path" suffix=""
@@ -89,7 +89,7 @@ canonicalize_path() {
 resolve_rel_path() {
     local cwd="$1" rel="$2"
     if command -v python3 &>/dev/null; then
-        python3 -c "import os.path; print(os.path.normpath(os.path.join('$cwd', '$rel')))" 2>/dev/null && return
+        cwd_val="$cwd" rel_val="$rel" python3 -c "import os, os.path; print(os.path.normpath(os.path.join(os.environ['cwd_val'], os.environ['rel_val'])))" 2>/dev/null && return
     fi
     # Bash fallback
     printf '%s/%s\n' "$cwd" "$rel" | sed 's|/\./|/|g; s|//|/|g'
@@ -104,6 +104,7 @@ ABS_RAW=$(printf '%s\n' "$ALL_TEXT" \
     | grep -oE '(^|[^./a-zA-Z0-9_-])/[a-zA-Z0-9_.][a-zA-Z0-9_./:-]*' \
     | grep -oE '/[a-zA-Z0-9_.][a-zA-Z0-9_./:-]*' \
     | grep -vE '^/(dev|proc|sys)(/|$)' \
+    | sed 's/:$//' \
     | sort -u)
 
 # Resolve relative paths if cwd is available
