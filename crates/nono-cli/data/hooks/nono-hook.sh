@@ -91,7 +91,11 @@ resolve_rel_path() {
     if command -v python3 &>/dev/null; then
         cwd_val="$cwd" rel_val="$rel" python3 -c "import os, os.path; print(os.path.normpath(os.path.join(os.environ['cwd_val'], os.environ['rel_val'])))" 2>/dev/null && return
     fi
-    # Bash fallback
+    # readlink -f (GNU coreutils) normalizes .. without requiring path to exist
+    if command -v readlink &>/dev/null; then
+        readlink -f "$cwd/$rel" 2>/dev/null && return
+    fi
+    # Last resort: concatenate (may leave .. components unnormalized)
     printf '%s/%s\n' "$cwd" "$rel" | sed 's|/\./|/|g; s|//|/|g'
 }
 
@@ -125,15 +129,13 @@ fi
 # Combine, canonicalize, and deduplicate all paths
 ALL_PATHS_RAW=$(printf '%s\n%s\n' "$ABS_RAW" "$REL_RESOLVED" | grep -v '^$' | sort -u)
 
-ALL_PATHS=""
-while IFS= read -r path; do
-    [ -z "$path" ] && continue
-    canon=$(canonicalize_path "$path")
-    ALL_PATHS="${ALL_PATHS}${path}
-${canon}
-"
-done <<< "$ALL_PATHS_RAW"
-ALL_PATHS=$(printf '%s\n' "$ALL_PATHS" | grep -v '^$' | sort -u)
+ALL_PATHS=$(
+    while IFS= read -r path; do
+        [ -z "$path" ] && continue
+        canon=$(canonicalize_path "$path")
+        printf '%s\n%s\n' "$path" "$canon"
+    done <<< "$ALL_PATHS_RAW" | grep -v '^$' | sort -u
+)
 
 # ---------------------------------------------------------------------------
 # 5. Tool-name-aware threshold promotion
