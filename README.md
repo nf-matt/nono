@@ -38,14 +38,18 @@ Kernel-enforced sandboxing (Landlock/Seatbelt) blocks unauthorized access at the
 
 ## CLI
 
+The CLI is the quickest way to get going! zero startup latency, no need to install hypervisors, runtimes, mount volumes...sandboxed and protected in a single command
+
 ```bash
 # Any CLI agent — just put your command after --
-nono run --allow-cwd -- claude
-nono run --allow-cwd -- aider --model sonnet
+nono run --profile claude-code -- claude
+nono run --profile opencode -- opencode
+nono run --profile openclaw -- openclaw
+
 nono run --allow-cwd -- python3 my_agent.py
 nono run --allow-cwd -- npx @anthropic/agent-framework
 
-# MCP servers, custom profiles, any framework
+# MCP servers, agents, anything!
 nono run --read /data -- npx @modelcontextprotocol/server-filesystem /data
 nono run --profile pydantic-ai-agent --allow logs/ -- uv run my_agent.py
 nono run --profile custom-profile -- node agent.js
