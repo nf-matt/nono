@@ -55,7 +55,7 @@ nono run --profile pydantic-ai-agent --allow logs/ -- uv run my_agent.py
 nono run --profile custom-profile -- node agent.js
 
 # Rollback snapshots — undo everything the agent did
-nono run --rollback --allow-cwd -- claude
+nono run --rollback --profile claude-code --allow-cwd -- claude
 
 # Combine rollback, network filtering, and port binding
 nono run --rollback --proxy-allow api.anthropic.ai --allow-port 8000 -- uv run uvicorn myagent.main:app --port 8000
@@ -68,6 +68,15 @@ nono run --no-audit --allow-cwd -- npm test
 
 # Direct exec for scripts and piping (no parent process)
 nono wrap --read ./src --write ./output -- cargo build
+
+# Need a profile automatically applied for a specific client?
+nono learn -- new-cool-coding-agent
+
+# Why did you block that command? 
+nono why --path ~/.ssh/id_rsa
+DENIED
+  Reason: sensitive_path
+  Details: Path matches sensitive pattern 'Block access to cryptographic keys, tokens, and cloud credentials'. Access blocked by security policy.
 ```
 
 Built-in profiles for [Claude Code](https://docs.nono.sh/clients/claude-code), [OpenCode](https://docs.nono.sh/clients/opencode), and [OpenClaw](https://docs.nono.sh/clients/openclaw) — or define your own with custom permissions.
