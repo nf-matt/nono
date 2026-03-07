@@ -216,12 +216,19 @@ fi
 # ---------------------------------------------------------------------------
 FIRST_OUTSIDE=$(printf '%s\n' "$OUTSIDE_PATHS" | grep -v '^$' | head -1)
 
+# Include cap file inode so PID-reuse across sessions doesn't collide on the seen file
+CAP_INODE=""
+if command -v stat &>/dev/null; then
+    CAP_INODE=$(stat -f "%i" "$NONO_CAP_FILE" 2>/dev/null \
+        || stat -c "%i" "$NONO_CAP_FILE" 2>/dev/null) || true
+fi
+
 NONO_HOOK_HASH=""
 if command -v sha256sum &>/dev/null; then
-    NONO_HOOK_HASH=$(printf '%s%s' "$NONO_CAP_FILE" "$FIRST_OUTSIDE" \
+    NONO_HOOK_HASH=$(printf '%s%s%s' "$CAP_INODE" "$NONO_CAP_FILE" "$FIRST_OUTSIDE" \
         | sha256sum | awk '{print $1}')
 elif command -v shasum &>/dev/null; then
-    NONO_HOOK_HASH=$(printf '%s%s' "$NONO_CAP_FILE" "$FIRST_OUTSIDE" \
+    NONO_HOOK_HASH=$(printf '%s%s%s' "$CAP_INODE" "$NONO_CAP_FILE" "$FIRST_OUTSIDE" \
         | shasum -a 256 | awk '{print $1}')
 fi
 
