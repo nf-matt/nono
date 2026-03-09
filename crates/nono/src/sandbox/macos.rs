@@ -327,7 +327,7 @@ fn generate_profile(caps: &CapabilitySet) -> Result<String> {
             profile.push_str("(allow process-info* (target same-sandbox))\n");
         }
         crate::capability::ProcessInfoMode::AllowAll => {
-            // No deny rule — process-info* for all processes allowed
+            profile.push_str("(allow process-info*)\n");
         }
     }
 
@@ -361,11 +361,16 @@ fn generate_profile(caps: &CapabilitySet) -> Result<String> {
     // the kernel and bypass this restriction, so interactive use is unaffected.
     // In monitor mode, the parent's signal forwarding handler will get EPERM
     // when trying to forward to the child — this is tolerated silently.
+    //
+    // Note: for AllowSameSandbox we emit both (target self) and (target same-sandbox)
+    // because Seatbelt's same-sandbox filter may not subsume self — being explicit
+    // ensures the process can always signal itself regardless of implementation details.
     match caps.signal_mode() {
         crate::capability::SignalMode::Isolated => {
             profile.push_str("(allow signal (target self))\n");
         }
         crate::capability::SignalMode::AllowSameSandbox => {
+            profile.push_str("(allow signal (target self))\n");
             profile.push_str("(allow signal (target same-sandbox))\n");
         }
         crate::capability::SignalMode::AllowAll => {
@@ -1006,8 +1011,8 @@ mod tests {
         use crate::capability::SignalMode;
         let caps = CapabilitySet::new().set_signal_mode(SignalMode::AllowSameSandbox);
         let profile = generate_profile(&caps).unwrap();
+        assert!(profile.contains("(allow signal (target self))"));
         assert!(profile.contains("(allow signal (target same-sandbox))"));
-        assert!(!profile.contains("(allow signal (target self))"));
         assert!(!profile.contains("(allow signal)\n"));
     }
 
@@ -1035,6 +1040,7 @@ mod tests {
         let caps = CapabilitySet::new().set_process_info_mode(ProcessInfoMode::AllowAll);
         let profile = generate_profile(&caps).unwrap();
         assert!(profile.contains("(allow process-info* (target self))"));
+        assert!(profile.contains("(allow process-info*)\n"));
         assert!(!profile.contains("(deny process-info* (target others))"));
     }
 

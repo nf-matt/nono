@@ -559,15 +559,13 @@ pub struct HooksConfig {
 ///
 /// Maps to `nono::SignalMode` when building the `CapabilitySet`.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Deserialize)]
-#[serde(rename_all = "lowercase")]
+#[serde(rename_all = "snake_case")]
 pub enum ProfileSignalMode {
     /// Signals restricted to the current process only
     Isolated,
     /// Signals allowed to child processes in the same sandbox only
-    #[serde(alias = "allow_same_sandbox")]
     AllowSameSandbox,
     /// Signals allowed to any process
-    #[serde(alias = "allow_all")]
     AllowAll,
 }
 
@@ -585,15 +583,13 @@ impl From<ProfileSignalMode> for nono::SignalMode {
 ///
 /// Maps to `nono::ProcessInfoMode` when building the `CapabilitySet`.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Deserialize)]
-#[serde(rename_all = "lowercase")]
+#[serde(rename_all = "snake_case")]
 pub enum ProfileProcessInfoMode {
     /// Inspection restricted to self only (default)
     Isolated,
     /// Inspection allowed for same-sandbox children
-    #[serde(alias = "allow_same_sandbox")]
     AllowSameSandbox,
     /// Inspection allowed for any process
-    #[serde(alias = "allow_all")]
     AllowAll,
 }
 
@@ -2710,7 +2706,7 @@ mod tests {
     }
 
     #[test]
-    fn test_security_config_process_info_mode_allow_all_alias() {
+    fn test_security_config_process_info_mode_allow_all() {
         let json = r#"{
             "meta": { "name": "pim-alias" },
             "filesystem": { "allow": ["/tmp"] },
