@@ -254,16 +254,13 @@ nono audit show 20260216-193311-20751 --json
 
 ## Quick Start
 
-### macOS
+### Homebrew (macOS/Linux)
 
 ```bash
 brew install nono
 ```
 
-> [!NOTE]
-> The package is not in homebrew official yet, [give us a star](https://github.com/always-further/nono) to help raise our profile for when we request approval.
-
-### Linux
+### Other Linux Install Options
 
 See the [Installation Guide](https://docs.nono.sh/cli/getting_started/installation) for prebuilt binaries and package manager instructions.
 
