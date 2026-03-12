@@ -1,5 +1,30 @@
 # Changelog
 
+## [0.17.0] - 2026-03-12
+
+### Bug Fixes
+
+- Add OAuth2 URL opening support via supervisor IPC (#340) ([#340](https://github.com/always-further/nono/pull/340))
+
+- Check access mode when determining if CWD is already covered (#334) ([#334](https://github.com/always-further/nono/pull/334))
+
+
+### Documentation
+
+- Updating docs to reflect pnpm support. (#332) ([#332](https://github.com/always-further/nono/pull/332))
+
+- Update Homebrew install references (#326) ([#326](https://github.com/always-further/nono/pull/326))
+
+
+### Features
+
+- *(cli)* Add pluggable theme system with 6 built-in palettes (#341) ([#341](https://github.com/always-further/nono/pull/341))
+
+
+### Refactoring
+
+- *(cli)* Standardize flags to verb-noun ordering (#302) ([#302](https://github.com/always-further/nono/pull/302))
+
 ## [0.16.0] - 2026-03-10
 
 ### Bug Fixes
