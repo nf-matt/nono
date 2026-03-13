@@ -86,6 +86,12 @@ fn validate_requested_file(
     )
 }
 
+pub(crate) fn default_profile_groups() -> Result<Vec<String>> {
+    let profile = crate::policy::get_policy_profile("default")?
+        .ok_or_else(|| NonoError::ProfileNotFound("default".to_string()))?;
+    Ok(profile.security.groups)
+}
+
 /// Extension trait for CapabilitySet to add CLI-specific construction methods.
 ///
 /// Both methods return `(CapabilitySet, bool)` where the bool indicates whether
@@ -112,8 +118,8 @@ impl CapabilitySetExt for CapabilitySet {
 
         // Resolve base policy groups (system paths, deny rules, dangerous commands)
         let loaded_policy = policy::load_embedded_policy()?;
-        let base = policy::base_groups()?;
-        let mut resolved = policy::resolve_groups(&loaded_policy, &base, &mut caps)?;
+        let default_groups = default_profile_groups()?;
+        let mut resolved = policy::resolve_groups(&loaded_policy, &default_groups, &mut caps)?;
 
         // Directory permissions (canonicalize handles existence check atomically)
         for path in &args.allow {
@@ -194,11 +200,11 @@ impl CapabilitySetExt for CapabilitySet {
         let protected_roots = ProtectedRoots::from_defaults()?;
 
         // Resolve policy groups from profile
-        // All profiles must have groups; if empty, use base_groups() as fallback
+        // All profiles must have groups; if empty, use the built-in default profile
         let loaded_policy = policy::load_embedded_policy()?;
         policy::validate_group_exclusions(&loaded_policy, &profile.policy.exclude_groups)?;
         let mut groups = if profile.security.groups.is_empty() {
-            policy::base_groups()?
+            default_profile_groups()?
         } else {
             profile.security.groups.clone()
         };
@@ -580,6 +586,20 @@ mod tests {
                 .contains("overlaps protected nono state root"),
             "unexpected error: {err}",
         );
+    }
+
+    #[test]
+    fn test_from_args_uses_default_profile_groups_for_runtime_policy() {
+        let args = sandbox_args();
+        let (caps, _) = CapabilitySet::from_args(&args).expect("build caps from args");
+
+        let policy = crate::policy::load_embedded_policy().expect("load embedded policy");
+        let default_groups = default_profile_groups().expect("get default profile groups");
+        let deny_paths = crate::policy::resolve_deny_paths_for_groups(&policy, &default_groups)
+            .expect("resolve deny paths");
+
+        crate::policy::validate_deny_overlaps(&deny_paths, &caps)
+            .expect("from_args caps should match default profile deny policy");
     }
 
     #[test]
