@@ -54,14 +54,14 @@ Profiles use JSON format:
     "access": "readwrite"
   },
   "security": {
-    "groups": ["node_runtime", "python_runtime"]
+    "groups": ["node_runtime", "python_runtime", "git_config"]
   },
   "filesystem": {
     "allow": ["$HOME/.config/my-agent"],
     "read": [],
     "write": [],
     "allow_file": [],
-    "read_file": ["$HOME/.gitconfig"],
+    "read_file": [],
     "write_file": []
   },
   "policy": {
@@ -547,9 +547,9 @@ The base profile that all other profiles extend. Provides system path access, de
 nono run --profile claude-code -- claude
 ```
 
-**Groups:** `claude_code_macos`, `claude_code_linux`, `user_caches_macos`, `claude_cache_linux`, `node_runtime`, `rust_runtime`, `python_runtime`, `vscode_macos`, `vscode_linux`, `nix_runtime`, `unlink_protection` (plus `default` groups)
+**Groups:** `claude_code_macos`, `claude_code_linux`, `user_caches_macos`, `claude_cache_linux`, `node_runtime`, `rust_runtime`, `python_runtime`, `vscode_macos`, `vscode_linux`, `nix_runtime`, `git_config`, `unlink_protection` (plus `default` groups)
 
-**Filesystem:** `~/.claude` (read+write), `~/.claude.json` and `~/.claude.json.lock` (read+write), `~/.gitconfig`, `~/.gitignore_global`, `~/.config/git/ignore` (read), plus platform-specific Claude Code and VS Code paths from the matching `_macos` or `_linux` groups
+**Filesystem:** `~/.claude` (read+write), `~/.claude.json` and `~/.claude.json.lock` (read+write), plus platform-specific Claude Code and VS Code paths from the matching `_macos` or `_linux` groups, and git config files from `git_config` group
 
 **Network:** Allowed
 
@@ -563,9 +563,9 @@ nono run --profile claude-code -- claude
 nono run --profile codex -- codex
 ```
 
-**Groups:** `codex_macos`, `node_runtime`, `rust_runtime`, `python_runtime`, `nix_runtime`, `unlink_protection` (plus `default` groups)
+**Groups:** `codex_macos`, `node_runtime`, `rust_runtime`, `python_runtime`, `nix_runtime`, `git_config`, `unlink_protection` (plus `default` groups)
 
-**Filesystem:** `~/.codex` (read+write)
+**Filesystem:** `~/.codex` (read+write), plus git config files from `git_config` group
 
 **Network:** Allowed
 
@@ -579,9 +579,9 @@ nono run --profile codex -- codex
 nono run --profile opencode -- opencode
 ```
 
-**Groups:** `user_caches_macos`, `user_caches_linux`, `node_runtime`, `opencode_linux`, `unlink_protection` (plus `default` groups)
+**Groups:** `user_caches_macos`, `user_caches_linux`, `node_runtime`, `opencode_linux`, `git_config`, `unlink_protection` (plus `default` groups)
 
-**Filesystem:** `~/.config/opencode`, `~/.cache/opencode`, `~/.local/share/opencode`, `~/.local/share/opentui` (all read+write)
+**Filesystem:** `~/.config/opencode`, `~/.cache/opencode`, `~/.local/share/opencode`, `~/.local/share/opentui` (all read+write), plus git config files from `git_config` group
 
 **Network:** Allowed
 
@@ -607,9 +607,9 @@ nono run --profile openclaw -- openclaw
 nono run --profile swival -- swival
 ```
 
-**Groups:** `python_runtime`, `node_runtime`, `user_caches_macos`, `user_caches_linux`, `unlink_protection` (plus `default` groups)
+**Groups:** `python_runtime`, `node_runtime`, `user_caches_macos`, `user_caches_linux`, `git_config`, `unlink_protection` (plus `default` groups)
 
-**Filesystem:** `~/.config/swival`, `~/.local/share/swival` (read+write), `~/.gitconfig`, `~/.gitignore_global`, `~/.config/git/ignore` (read)
+**Filesystem:** `~/.config/swival`, `~/.local/share/swival` (read+write), plus git config files from `git_config` group
 
 **Network:** Allowed
 

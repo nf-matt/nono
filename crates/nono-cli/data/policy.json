@@ -455,6 +455,16 @@
         ]
       }
     },
+    "git_config": {
+      "description": "Read access to git configuration files",
+      "allow": {
+        "read": [
+          "$HOME/.gitconfig",
+          "$HOME/.gitignore_global",
+          "$HOME/.config/git/ignore"
+        ]
+      }
+    },
     "unlink_protection": {
       "description": "Block file deletion globally, override for user-writable paths",
       "deny": {
@@ -590,6 +600,7 @@
           "vscode_macos",
           "vscode_linux",
           "nix_runtime",
+          "git_config",
           "unlink_protection"
         ],
         "signal_mode": "isolated",
@@ -597,8 +608,7 @@
       },
       "filesystem": {
         "allow": ["$HOME/.claude"],
-        "allow_file": ["$HOME/.claude.json", "$HOME/.claude.json.lock"],
-        "read_file": ["$HOME/.gitconfig", "$HOME/.gitignore_global", "$HOME/.config/git/ignore"]
+        "allow_file": ["$HOME/.claude.json", "$HOME/.claude.json.lock"]
       },
       "network": { "block": false },
       "workdir": { "access": "readwrite" },
@@ -637,6 +647,7 @@
           "rust_runtime",
           "python_runtime",
           "nix_runtime",
+          "git_config",
           "unlink_protection"
         ],
         "signal_mode": "isolated",
@@ -692,7 +703,7 @@
         "author": "nono-project"
       },
       "security": {
-        "groups": ["user_caches_macos", "user_caches_linux", "node_runtime", "opencode_linux", "unlink_protection"],
+        "groups": ["user_caches_macos", "user_caches_linux", "node_runtime", "opencode_linux", "git_config", "unlink_protection"],
         "signal_mode": "isolated"
       },
       "filesystem": {
@@ -792,6 +803,7 @@
           "node_runtime",
           "user_caches_macos",
           "user_caches_linux",
+          "git_config",
           "unlink_protection"
         ],
         "signal_mode": "isolated",
@@ -801,8 +813,7 @@
         "allow": [
           "$HOME/.config/swival",
           "$HOME/.local/share/swival"
-        ],
-        "read_file": ["$HOME/.gitconfig", "$HOME/.gitignore_global", "$HOME/.config/git/ignore"]
+        ]
       },
       "network": { "block": false },
       "workdir": { "access": "readwrite" },
