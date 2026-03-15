@@ -44,6 +44,7 @@
           "cli/features/network-proxy",
           "cli/features/credential-injection",
           "cli/features/execution-modes",
+          "cli/features/policy-introspection",
           "cli/features/learn",
           "cli/features/trust"
         ]

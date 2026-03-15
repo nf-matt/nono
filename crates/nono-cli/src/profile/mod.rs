@@ -4,7 +4,7 @@
 //! claude-code, openclaw, and opencode. They can be built-in (compiled
 //! into the binary) or user-defined (in ~/.config/nono/profiles/).
 
-mod builtin;
+pub(crate) mod builtin;
 
 use nono::{NonoError, Result};
 use serde::{Deserialize, Deserializer};
@@ -90,7 +90,7 @@ pub struct PolicyPatchConfig {
 /// - `url_path`: Replace pattern in URL path (e.g., Telegram Bot API `/bot{}/`)
 /// - `query_param`: Add/replace query parameter (e.g., `?api_key=...`)
 /// - `basic_auth`: HTTP Basic Authentication (credential as `username:password`)
-#[derive(Debug, Clone, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Deserialize)]
 pub struct CustomCredentialDef {
     /// Upstream URL to proxy requests to (e.g., "https://api.telegram.org")
     pub upstream: String,
@@ -790,6 +790,54 @@ pub struct Profile {
     pub interactive: bool,
 }
 
+/// Check whether a profile name is loaded from a user file rather than the built-in set.
+///
+/// Returns `true` when a user profile file exists at `~/.config/nono/profiles/<name>.json`,
+/// which means the user has overridden or shadowed any built-in profile of the same name.
+pub fn is_user_override(name: &str) -> bool {
+    if !is_valid_profile_name(name) {
+        return false;
+    }
+    get_user_profile_path(name)
+        .map(|p| p.exists())
+        .unwrap_or(false)
+}
+
+/// Load a profile's raw (unresolved) extends target name.
+///
+/// Returns `Some(base_name)` if the profile declares `extends`, `None` otherwise.
+/// This reads the raw profile definition before inheritance resolution clears the field.
+pub fn load_profile_extends(name_or_path: &str) -> Option<String> {
+    // Direct file path
+    if name_or_path.contains('/') || name_or_path.ends_with(".json") {
+        return parse_profile_file(Path::new(name_or_path))
+            .ok()
+            .and_then(|p| p.extends);
+    }
+
+    if !is_valid_profile_name(name_or_path) {
+        return None;
+    }
+
+    // User profile
+    if let Ok(profile_path) = get_user_profile_path(name_or_path) {
+        if profile_path.exists() {
+            return parse_profile_file(&profile_path)
+                .ok()
+                .and_then(|p| p.extends);
+        }
+    }
+
+    // Built-in profile
+    if let Ok(policy) = crate::policy::load_embedded_policy() {
+        if let Some(def) = policy.profiles.get(name_or_path) {
+            return def.extends.clone();
+        }
+    }
+
+    None
+}
+
 /// Load a profile by name or file path
 ///
 /// If `name_or_path` contains a path separator or ends with `.json`, it is
@@ -1263,7 +1311,6 @@ pub fn expand_vars(path: &str, workdir: &Path) -> Result<PathBuf> {
 }
 
 /// List available profiles (built-in + user)
-#[allow(dead_code)]
 pub fn list_profiles() -> Vec<String> {
     let mut profiles = builtin::list_builtin();
 

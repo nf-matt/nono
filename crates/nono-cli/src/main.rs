@@ -13,6 +13,7 @@ mod learn;
 mod network_policy;
 mod output;
 mod policy;
+mod policy_cmd;
 mod profile;
 mod protected_paths;
 mod query_ext;
@@ -120,6 +121,7 @@ fn cli_verbosity(cli: &Cli) -> u8 {
         | Commands::Rollback(_)
         | Commands::Trust(_)
         | Commands::Audit(_)
+        | Commands::Policy(_)
         | Commands::OpenUrlHelper(_) => 0,
     }
 }
@@ -168,6 +170,10 @@ fn run(cli: Cli) -> Result<()> {
         Commands::Audit(args) => {
             show_update_notification(&mut update_handle, cli.silent);
             audit_commands::run_audit(args)
+        }
+        Commands::Policy(args) => {
+            show_update_notification(&mut update_handle, cli.silent);
+            policy_cmd::run_policy(args)
         }
         Commands::OpenUrlHelper(args) => run_open_url_helper(args),
     }

@@ -160,7 +160,7 @@ impl ProfileDef {
 // ============================================================================
 
 /// Current platform identifier
-fn current_platform() -> &'static str {
+pub(crate) fn current_platform() -> &'static str {
     if cfg!(target_os = "macos") {
         "macos"
     } else if cfg!(target_os = "linux") {
@@ -171,7 +171,7 @@ fn current_platform() -> &'static str {
 }
 
 /// Check if a group applies to the current platform
-fn group_matches_platform(group: &Group) -> bool {
+pub(crate) fn group_matches_platform(group: &Group) -> bool {
     match &group.platform {
         Some(platform) => platform == current_platform(),
         None => true, // No platform restriction = applies everywhere
@@ -185,7 +185,7 @@ fn group_matches_platform(group: &Group) -> bool {
 /// Expand `~` to $HOME and `$TMPDIR` to the environment variable value.
 ///
 /// Returns an error if HOME or TMPDIR are set to non-absolute paths.
-fn expand_path(path_str: &str) -> Result<PathBuf> {
+pub(crate) fn expand_path(path_str: &str) -> Result<PathBuf> {
     use crate::config;
 
     let expanded = if let Some(rest) = path_str.strip_prefix("~/") {

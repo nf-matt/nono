@@ -217,6 +217,28 @@ PLATFORM NOTES:
 ")]
     Audit(AuditArgs),
 
+    /// Inspect policy groups, profiles, and security rules
+    #[command(after_help = "EXAMPLES:
+    # List all policy groups
+    nono policy groups
+
+    # Show details for a specific group
+    nono policy groups deny_credentials
+
+    # List all profiles (built-in and user)
+    nono policy profiles
+
+    # Show a fully resolved profile
+    nono policy show claude-code
+
+    # Compare two profiles
+    nono policy diff default claude-code
+
+    # Validate a user profile file
+    nono policy validate ~/my-profile.json
+")]
+    Policy(PolicyArgs),
+
     /// Internal: open a URL via supervisor IPC
     #[command(hide = true)]
     OpenUrlHelper(OpenUrlHelperArgs),
@@ -232,6 +254,77 @@ PLATFORM NOTES:
 pub struct OpenUrlHelperArgs {
     /// The URL to open
     pub url: String,
+}
+
+#[derive(Parser, Debug)]
+pub struct PolicyArgs {
+    #[command(subcommand)]
+    pub command: PolicyCommands,
+}
+
+#[derive(Subcommand, Debug)]
+pub enum PolicyCommands {
+    /// List policy groups or show details for a specific group
+    Groups(PolicyGroupsArgs),
+    /// List all available profiles (built-in and user)
+    Profiles(PolicyProfilesArgs),
+    /// Show a fully resolved profile
+    Show(PolicyShowArgs),
+    /// Diff two profiles
+    Diff(PolicyDiffArgs),
+    /// Validate a profile JSON file
+    Validate(PolicyValidateArgs),
+}
+
+#[derive(Parser, Debug)]
+pub struct PolicyGroupsArgs {
+    /// Group name to show details for (omit to list all)
+    pub name: Option<String>,
+    /// Output as JSON
+    #[arg(long)]
+    pub json: bool,
+    /// Show all platforms (not just current)
+    #[arg(long)]
+    pub all_platforms: bool,
+}
+
+#[derive(Parser, Debug)]
+pub struct PolicyProfilesArgs {
+    /// Output as JSON
+    #[arg(long)]
+    pub json: bool,
+}
+
+#[derive(Parser, Debug)]
+pub struct PolicyShowArgs {
+    /// Profile name or path
+    pub profile: String,
+    /// Output as JSON
+    #[arg(long)]
+    pub json: bool,
+    /// Show raw paths before expansion (e.g., $HOME instead of /Users/luke)
+    #[arg(long)]
+    pub raw: bool,
+}
+
+#[derive(Parser, Debug)]
+pub struct PolicyDiffArgs {
+    /// First profile name or path
+    pub profile1: String,
+    /// Second profile name or path
+    pub profile2: String,
+    /// Output as JSON
+    #[arg(long)]
+    pub json: bool,
+}
+
+#[derive(Parser, Debug)]
+pub struct PolicyValidateArgs {
+    /// Profile JSON file to validate
+    pub file: PathBuf,
+    /// Output as JSON
+    #[arg(long)]
+    pub json: bool,
 }
 
 #[derive(Parser, Debug, Clone, Default)]

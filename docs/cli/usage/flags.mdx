@@ -107,6 +107,23 @@ Set up nono on this system. Verifies installation, tests sandbox support, and op
 nono setup [OPTIONS]
 ```
 
+### `nono policy`
+
+Inspect policy groups, profiles, and security rules.
+
+```bash
+nono policy <SUBCOMMAND>
+```
+
+Subcommands:
+- `groups` - List policy groups or show details for a specific group
+- `profiles` - List all available profiles (built-in and user)
+- `show` - Show a fully resolved profile
+- `diff` - Diff two profiles
+- `validate` - Validate a profile JSON file
+
+See [Policy Introspection](/cli/features/policy-introspection) for full documentation.
+
 ### `nono trust`
 
 Manage instruction file attestation. Sign, verify, and manage trust for AI agent instruction files.
