@@ -731,7 +731,8 @@
       },
       "security": {
         "groups": ["python_runtime"],
-        "signal_mode": "isolated"
+        "signal_mode": "isolated",
+        "ipc_mode": "full"
       },
       "filesystem": {},
       "network": { "block": false, "network_profile": "developer" },

@@ -349,10 +349,20 @@ fn generate_profile(caps: &CapabilitySet) -> Result<String> {
     profile.push_str("(allow mach-task-name)\n");
     profile.push_str("(deny mach-priv*)\n");
 
-    // IPC: allow only POSIX shared memory operations
+    // IPC: always allow POSIX shared memory operations
     profile.push_str("(allow ipc-posix-shm-read-data)\n");
     profile.push_str("(allow ipc-posix-shm-write-data)\n");
     profile.push_str("(allow ipc-posix-shm-write-create)\n");
+
+    // IPC: conditionally allow all POSIX semaphore operations (IpcMode::Full).
+    // Required by multiprocessing runtimes (Python multiprocessing, joblib, etc.)
+    // that use sem_open/sem_wait/sem_post/sem_close for worker coordination.
+    // We use the wildcard to cover all sem operations (open, close, create,
+    // post, wait, unlink) since Seatbelt's internal operation taxonomy is
+    // not fully documented and individual enumeration risks missing operations.
+    if caps.ipc_mode() == crate::capability::IpcMode::Full {
+        profile.push_str("(allow ipc-posix-sem*)\n");
+    }
 
     // Signal isolation: (target self) restricts kill() to the calling process's
     // own PID only. This blocks signals to external processes but also blocks
@@ -1042,6 +1052,29 @@ mod tests {
         assert!(profile.contains("(allow process-info* (target self))"));
         assert!(profile.contains("(allow process-info*)\n"));
         assert!(!profile.contains("(deny process-info* (target others))"));
+    }
+
+    #[test]
+    fn test_generate_profile_ipc_shared_memory_only_no_semaphores() {
+        let caps = CapabilitySet::new(); // default = SharedMemoryOnly
+        let profile = generate_profile(&caps).unwrap();
+        // Shared memory is always present
+        assert!(profile.contains("(allow ipc-posix-shm-read-data)"));
+        assert!(profile.contains("(allow ipc-posix-shm-write-data)"));
+        assert!(profile.contains("(allow ipc-posix-shm-write-create)"));
+        // Semaphores should NOT be present in default mode
+        assert!(!profile.contains("ipc-posix-sem"));
+    }
+
+    #[test]
+    fn test_generate_profile_ipc_full_includes_semaphores() {
+        use crate::capability::IpcMode;
+        let caps = CapabilitySet::new().set_ipc_mode(IpcMode::Full);
+        let profile = generate_profile(&caps).unwrap();
+        // Shared memory still present
+        assert!(profile.contains("(allow ipc-posix-shm-read-data)"));
+        // Semaphore wildcard present
+        assert!(profile.contains("(allow ipc-posix-sem*)"));
     }
 
     #[test]

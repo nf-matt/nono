@@ -352,6 +352,14 @@ impl CapabilitySetExt for CapabilitySet {
             .unwrap_or_default();
         caps.set_process_info_mode_mut(process_info_mode);
 
+        // Apply IPC mode from profile (None defaults to SharedMemoryOnly)
+        let ipc_mode = profile
+            .security
+            .ipc_mode
+            .map(nono::IpcMode::from)
+            .unwrap_or_default();
+        caps.set_ipc_mode_mut(ipc_mode);
+
         // Apply CLI overrides (CLI args take precedence)
         add_cli_overrides(&mut caps, args)?;
 
@@ -1331,6 +1339,31 @@ mod tests {
             caps.process_info_mode(),
             nono::ProcessInfoMode::AllowSameSandbox,
             "profile process_info_mode should propagate to CapabilitySet"
+        );
+    }
+
+    #[test]
+    fn test_from_profile_ipc_mode_full() {
+        let dir = tempdir().expect("tmpdir");
+        let profile_path = dir.path().join("ipc-test.json");
+        std::fs::write(
+            &profile_path,
+            r#"{
+                "meta": { "name": "ipc-test" },
+                "filesystem": { "allow": ["/tmp"] },
+                "security": { "ipc_mode": "full" }
+            }"#,
+        )
+        .expect("write profile");
+        let workdir = tempdir().expect("tmpdir");
+        let args = sandbox_args();
+        let profile = crate::profile::load_profile_from_path(&profile_path).expect("load profile");
+        let (caps, _) =
+            CapabilitySet::from_profile(&profile, workdir.path(), &args).expect("build caps");
+        assert_eq!(
+            caps.ipc_mode(),
+            nono::IpcMode::Full,
+            "profile ipc_mode should propagate to CapabilitySet"
         );
     }
 }

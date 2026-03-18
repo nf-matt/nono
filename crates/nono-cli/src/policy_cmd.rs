@@ -483,6 +483,10 @@ fn cmd_show(args: PolicyShowArgs) -> Result<()> {
         println!("  {} {:?}", theme::fg("Process info:", t.subtext), mode);
     }
 
+    if let Some(mode) = &profile.security.ipc_mode {
+        println!("  {}     {:?}", theme::fg("IPC mode:", t.subtext), mode);
+    }
+
     if let Some(elev) = profile.security.capability_elevation {
         println!(
             "  {} {}",
@@ -685,6 +689,7 @@ fn profile_to_json(
         "allowed_commands": profile.security.allowed_commands,
         "signal_mode": format!("{:?}", profile.security.signal_mode),
         "process_info_mode": format!("{:?}", profile.security.process_info_mode),
+        "ipc_mode": format!("{:?}", profile.security.ipc_mode),
         "capability_elevation": profile.security.capability_elevation,
     });
 
@@ -915,6 +920,12 @@ fn cmd_diff(args: PolicyDiffArgs) -> Result<()> {
         "process_info_mode",
         &p1.security.process_info_mode.map(|v| format!("{v:?}")),
         &p2.security.process_info_mode.map(|v| format!("{v:?}")),
+        t,
+    );
+    any_diff |= diff_scalar_option(
+        "ipc_mode",
+        &p1.security.ipc_mode.map(|v| format!("{v:?}")),
+        &p2.security.ipc_mode.map(|v| format!("{v:?}")),
         t,
     );
 

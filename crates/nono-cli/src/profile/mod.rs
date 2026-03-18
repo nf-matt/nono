@@ -691,6 +691,27 @@ impl From<ProfileProcessInfoMode> for nono::ProcessInfoMode {
     }
 }
 
+/// IPC mode as specified in a profile.
+///
+/// Maps to `nono::IpcMode` when building the `CapabilitySet`.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum ProfileIpcMode {
+    /// POSIX shared memory only (default). Semaphores denied.
+    SharedMemoryOnly,
+    /// Full POSIX IPC: shared memory + semaphores.
+    Full,
+}
+
+impl From<ProfileIpcMode> for nono::IpcMode {
+    fn from(val: ProfileIpcMode) -> Self {
+        match val {
+            ProfileIpcMode::SharedMemoryOnly => nono::IpcMode::SharedMemoryOnly,
+            ProfileIpcMode::Full => nono::IpcMode::Full,
+        }
+    }
+}
+
 #[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "lowercase")]
 pub enum WorkdirAccess {
@@ -733,6 +754,10 @@ pub struct SecurityConfig {
     /// to `Isolated`.
     #[serde(default)]
     pub process_info_mode: Option<ProfileProcessInfoMode>,
+    /// IPC mode. Controls whether the sandboxed process can use POSIX semaphores
+    /// (needed for multiprocessing). When `None`, defaults to `SharedMemoryOnly`.
+    #[serde(default)]
+    pub ipc_mode: Option<ProfileIpcMode>,
     /// Enable runtime capability elevation via seccomp-notify (Linux).
     /// When true, the supervisor intercepts file opens and can grant access
     /// to paths not in the initial capability set. When false (default),
@@ -1096,6 +1121,7 @@ fn merge_profiles(base: Profile, child: Profile) -> Profile {
                 .security
                 .process_info_mode
                 .or(base.security.process_info_mode),
+            ipc_mode: child.security.ipc_mode.or(base.security.ipc_mode),
             capability_elevation: child
                 .security
                 .capability_elevation
@@ -3112,6 +3138,47 @@ mod tests {
         assert_eq!(
             profile.security.process_info_mode,
             Some(ProfileProcessInfoMode::AllowAll)
+        );
+    }
+
+    #[test]
+    fn test_security_config_ipc_mode_full_deserializes() {
+        let json = r#"{
+            "meta": { "name": "ipc-test" },
+            "filesystem": { "allow": ["/tmp"] },
+            "security": { "ipc_mode": "full" }
+        }"#;
+        let dir = tempdir().expect("tmpdir");
+        let path = dir.path().join("ipc-test.json");
+        std::fs::write(&path, json).expect("write profile");
+        let profile = load_profile_from_path(&path).expect("parse profile");
+        assert_eq!(profile.security.ipc_mode, Some(ProfileIpcMode::Full));
+    }
+
+    #[test]
+    fn test_security_config_ipc_mode_defaults_none() {
+        let json = r#"{ "meta": { "name": "no-ipc" }, "filesystem": { "allow": ["/tmp"] } }"#;
+        let dir = tempdir().expect("tmpdir");
+        let path = dir.path().join("no-ipc.json");
+        std::fs::write(&path, json).expect("write profile");
+        let profile = load_profile_from_path(&path).expect("parse profile");
+        assert!(profile.security.ipc_mode.is_none());
+    }
+
+    #[test]
+    fn test_security_config_ipc_mode_shared_memory_only() {
+        let json = r#"{
+            "meta": { "name": "ipc-shm" },
+            "filesystem": { "allow": ["/tmp"] },
+            "security": { "ipc_mode": "shared_memory_only" }
+        }"#;
+        let dir = tempdir().expect("tmpdir");
+        let path = dir.path().join("ipc-shm.json");
+        std::fs::write(&path, json).expect("write profile");
+        let profile = load_profile_from_path(&path).expect("parse profile");
+        assert_eq!(
+            profile.security.ipc_mode,
+            Some(ProfileIpcMode::SharedMemoryOnly)
         );
     }
 }

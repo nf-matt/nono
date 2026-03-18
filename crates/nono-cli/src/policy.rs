@@ -139,6 +139,7 @@ impl ProfileDef {
                 allowed_commands: self.security.allowed_commands.clone(),
                 signal_mode: self.security.signal_mode,
                 process_info_mode: self.security.process_info_mode,
+                ipc_mode: self.security.ipc_mode,
                 capability_elevation: self.security.capability_elevation,
             },
             filesystem: self.filesystem.clone(),

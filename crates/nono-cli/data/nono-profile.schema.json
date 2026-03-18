@@ -137,6 +137,13 @@
           ],
           "description": "Process inspection mode controlling whether the sandboxed process can read process info for other processes. When null, defaults to isolated."
         },
+        "ipc_mode": {
+          "oneOf": [
+            { "$ref": "#/$defs/ProfileIpcMode" },
+            { "type": "null" }
+          ],
+          "description": "IPC mode controlling whether the sandboxed process can use POSIX semaphores (needed for multiprocessing). When null, defaults to shared_memory_only."
+        },
         "capability_elevation": {
           "oneOf": [
             { "type": "boolean" },
@@ -155,6 +162,11 @@
       "type": "string",
       "enum": ["isolated", "allow_same_sandbox", "allow_all"],
       "description": "Process inspection mode for the sandboxed process."
+    },
+    "ProfileIpcMode": {
+      "type": "string",
+      "enum": ["shared_memory_only", "full"],
+      "description": "IPC mode for the sandboxed process. 'shared_memory_only' allows POSIX shared memory but denies semaphores. 'full' enables both shared memory and semaphores (required for Python multiprocessing and similar runtimes)."
     },
     "FilesystemConfig": {
       "type": "object",

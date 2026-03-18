@@ -413,6 +413,32 @@ pub enum ProcessInfoMode {
     AllowAll,
 }
 
+/// IPC mode for the sandbox.
+///
+/// Controls whether the sandboxed process can use POSIX IPC primitives
+/// (semaphores) beyond shared memory. Shared memory (`shm_open`) is always
+/// allowed; this mode gates semaphore operations needed by multiprocessing
+/// runtimes (e.g., Python `multiprocessing`, Ruby `parallel`).
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize)]
+pub enum IpcMode {
+    /// POSIX shared memory only (default). Semaphore operations are denied.
+    ///
+    /// On macOS: only `ipc-posix-shm-*` rules emitted. `sem_open()` etc.
+    /// are blocked by the `(deny default)` baseline.
+    ///
+    /// On Linux: no-op (Landlock does not restrict IPC primitives).
+    #[default]
+    SharedMemoryOnly,
+    /// Full POSIX IPC: shared memory + semaphores.
+    ///
+    /// On macOS: adds `ipc-posix-sem-*` rules to the Seatbelt profile.
+    /// Required for Python `multiprocessing`, Node `worker_threads` with
+    /// shared memory, and similar multiprocess coordination.
+    ///
+    /// On Linux: no-op (Landlock does not restrict IPC primitives).
+    Full,
+}
+
 /// forcing all traffic through the nono proxy.
 #[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
 pub enum NetworkMode {
@@ -506,6 +532,8 @@ pub struct CapabilitySet {
     signal_mode: SignalMode,
     /// Process inspection mode (default: Isolated).
     process_info_mode: ProcessInfoMode,
+    /// IPC mode (default: SharedMemoryOnly).
+    ipc_mode: IpcMode,
     /// Enable sandbox extension support for runtime capability expansion.
     /// On macOS, adds extension filter rules to the Seatbelt profile so that
     /// `sandbox_extension_consume()` tokens can expand the sandbox dynamically.
@@ -652,6 +680,17 @@ impl CapabilitySet {
         self
     }
 
+    /// Set IPC mode (builder pattern)
+    ///
+    /// Controls whether the sandboxed process can use POSIX semaphores.
+    /// Shared memory is always allowed; `IpcMode::Full` additionally enables
+    /// semaphore operations required by multiprocessing runtimes.
+    #[must_use]
+    pub fn set_ipc_mode(mut self, mode: IpcMode) -> Self {
+        self.ipc_mode = mode;
+        self
+    }
+
     /// Allow signals to any process (builder pattern)
     ///
     /// Disables signal isolation. By default, sandboxed processes can only
@@ -741,6 +780,11 @@ impl CapabilitySet {
         self.process_info_mode = mode;
     }
 
+    /// Set IPC mode (mutable)
+    pub fn set_ipc_mode_mut(&mut self, mode: IpcMode) {
+        self.ipc_mode = mode;
+    }
+
     /// Add a TCP connect port to the allowlist (mutable)
     pub fn add_tcp_connect_port(&mut self, port: u16) {
         self.tcp_connect_ports.push(port);
@@ -827,6 +871,12 @@ impl CapabilitySet {
     #[must_use]
     pub fn process_info_mode(&self) -> ProcessInfoMode {
         self.process_info_mode
+    }
+
+    /// Get the IPC mode
+    #[must_use]
+    pub fn ipc_mode(&self) -> IpcMode {
+        self.ipc_mode
     }
 
     /// Get the network mode
@@ -1702,6 +1752,26 @@ mod tests {
     fn test_process_info_mode_allow_all() {
         let caps = CapabilitySet::new().set_process_info_mode(ProcessInfoMode::AllowAll);
         assert_eq!(caps.process_info_mode(), ProcessInfoMode::AllowAll);
+    }
+
+    #[test]
+    fn test_ipc_mode_default_is_shared_memory_only() {
+        let caps = CapabilitySet::new();
+        assert_eq!(caps.ipc_mode(), IpcMode::SharedMemoryOnly);
+    }
+
+    #[test]
+    fn test_ipc_mode_full() {
+        let caps = CapabilitySet::new().set_ipc_mode(IpcMode::Full);
+        assert_eq!(caps.ipc_mode(), IpcMode::Full);
+    }
+
+    #[test]
+    fn test_ipc_mode_mutable_setter() {
+        let mut caps = CapabilitySet::new();
+        assert_eq!(caps.ipc_mode(), IpcMode::SharedMemoryOnly);
+        caps.set_ipc_mode_mut(IpcMode::Full);
+        assert_eq!(caps.ipc_mode(), IpcMode::Full);
     }
 
     #[test]
