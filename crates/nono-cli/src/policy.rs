@@ -3,6 +3,7 @@
 //! Parses `policy.json` and resolves named groups into `CapabilitySet` entries
 //! and platform-specific rules using composable, platform-aware groups.
 
+use crate::package;
 use crate::profile;
 use nono::{AccessMode, CapabilitySet, CapabilitySource, FsCapability, NonoError, Result};
 use serde::Deserialize;
@@ -1314,11 +1315,46 @@ pub fn load_embedded_policy() -> Result<Policy> {
     }
 
     let json = crate::config::embedded::embedded_policy_json();
-    let policy = load_policy(json)?;
+    let mut policy = load_policy(json)?;
+    load_package_groups(&mut policy)?;
     // Another thread may have raced us; that's fine — OnceLock keeps the
     // first value and our `policy` is simply dropped.
     let _ = CACHED.set(policy.clone());
     Ok(policy)
+}
+
+pub fn load_package_groups(policy: &mut Policy) -> Result<()> {
+    let lockfile = package::read_lockfile()?;
+    for package_key in lockfile.packages.keys() {
+        let (namespace, name) = package_key.split_once('/').ok_or_else(|| {
+            NonoError::PackageInstall(format!("invalid lockfile package key '{package_key}'"))
+        })?;
+        let groups_path = package::package_groups_path(namespace, name)?;
+        if !groups_path.exists() {
+            continue;
+        }
+
+        let content = std::fs::read_to_string(&groups_path).map_err(|e| NonoError::ConfigRead {
+            path: groups_path.clone(),
+            source: e,
+        })?;
+
+        let groups: HashMap<String, Group> = serde_json::from_str(&content).map_err(|e| {
+            NonoError::ConfigParse(format!("failed to parse {}: {e}", groups_path.display()))
+        })?;
+
+        for (group_name, group) in groups {
+            if policy.groups.contains_key(&group_name) {
+                return Err(NonoError::PackageInstall(format!(
+                    "package group '{}' collides with an existing policy group",
+                    group_name
+                )));
+            }
+            policy.groups.insert(group_name, group);
+        }
+    }
+
+    Ok(())
 }
 
 // ============================================================================

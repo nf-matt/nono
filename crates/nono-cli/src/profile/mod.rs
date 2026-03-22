@@ -1257,6 +1257,19 @@ pub fn is_user_override(name: &str) -> bool {
         .unwrap_or(false)
 }
 
+/// Return the package directory that owns a profile symlink, if any.
+///
+/// A package-managed profile appears in `~/.config/nono/profiles/` as a symlink
+/// into the package store. This helper resolves that relationship so package
+/// hooks and other assets can be located relative to the installed package.
+pub fn get_package_for_profile(name: &str) -> Option<PathBuf> {
+    if !is_valid_profile_name(name) {
+        return None;
+    }
+
+    crate::package::is_profile_symlink_into_package_store(name)
+}
+
 /// Load a profile's raw (unresolved) extends target names.
 ///
 /// Returns `Some(base_names)` if the profile declares `extends`, `None` otherwise.
