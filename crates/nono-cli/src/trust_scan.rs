@@ -29,7 +29,11 @@ use std::path::{Path, PathBuf};
 ///
 /// Returns `NonoError::TrustPolicy` if a found policy file is malformed, or
 /// `NonoError::TrustVerification` if signature verification fails.
-pub fn load_scan_policy(root: &Path, trust_override: bool) -> Result<TrustPolicy> {
+pub fn load_scan_policy(
+    root: &Path,
+    trust_override: bool,
+    skip_dirs: &[String],
+) -> Result<TrustPolicy> {
     let cwd_policy = root.join("trust-policy.json");
     let project_policy_path = cwd_policy.exists().then_some(cwd_policy);
 
@@ -76,7 +80,7 @@ pub fn load_scan_policy(root: &Path, trust_override: bool) -> Result<TrustPolicy
         (None, None) => Ok(TrustPolicy::default()),
     }?;
 
-    if !trust_override && scan_has_signed_artifacts(root, &effective)? {
+    if !trust_override && scan_has_signed_artifacts(root, &effective, skip_dirs)? {
         verify_scan_policy_signatures(
             project_policy_path.as_deref(),
             user_policy_path.map(PathBuf::as_path),
@@ -91,12 +95,20 @@ pub fn load_scan_policy(root: &Path, trust_override: bool) -> Result<TrustPolicy
 /// This probes for per-file `.bundle` sidecars for included files and for the
 /// multi-subject `.nono-trust.bundle`. Unsigned files are still scanned later,
 /// but they do not require keystore access up front.
-fn scan_has_signed_artifacts(scan_root: &Path, policy: &TrustPolicy) -> Result<bool> {
+fn scan_has_signed_artifacts(
+    scan_root: &Path,
+    policy: &TrustPolicy,
+    skip_dirs: &[String],
+) -> Result<bool> {
     if trust::multi_subject_bundle_path(scan_root).exists() {
         return Ok(true);
     }
 
-    let files = trust::find_included_files(policy, scan_root)?;
+    if policy.includes.is_empty() {
+        return Ok(false);
+    }
+
+    let files = trust::find_included_files_with_skip_dirs(policy, scan_root, skip_dirs)?;
     Ok(files
         .iter()
         .any(|file_path| trust::bundle_path_for(file_path).exists()))
@@ -313,10 +325,20 @@ pub fn run_pre_exec_scan(
     scan_root: &Path,
     policy: &TrustPolicy,
     silent: bool,
+    skip_dirs: &[String],
 ) -> Result<ScanResult> {
-    let files = trust::find_included_files(policy, scan_root)?;
     let multi_bundle = trust::multi_subject_bundle_path(scan_root);
     let has_multi_bundle = multi_bundle.exists();
+    if policy.includes.is_empty() && !has_multi_bundle {
+        return Ok(ScanResult {
+            results: Vec::new(),
+            verified: 0,
+            blocked: 0,
+            warned: 0,
+        });
+    }
+
+    let files = trust::find_included_files_with_skip_dirs(policy, scan_root, skip_dirs)?;
 
     // Check for literal patterns (no glob characters) that matched zero files.
     // A missing literal file is a security concern: on macOS, there is no
@@ -969,7 +991,7 @@ mod tests {
     fn scan_empty_dir_returns_empty_result() {
         let dir = tempfile::tempdir().unwrap();
         let policy = TrustPolicy::default();
-        let result = run_pre_exec_scan(dir.path(), &policy, true).unwrap();
+        let result = run_pre_exec_scan(dir.path(), &policy, true, &[]).unwrap();
         assert!(result.should_proceed());
         assert_eq!(result.verified, 0);
         assert_eq!(result.blocked, 0);
@@ -988,7 +1010,18 @@ mod tests {
             ..TrustPolicy::default()
         };
 
-        let has_signed_artifacts = scan_has_signed_artifacts(dir.path(), &policy).unwrap();
+        let has_signed_artifacts = scan_has_signed_artifacts(dir.path(), &policy, &[]).unwrap();
+        assert!(!has_signed_artifacts);
+    }
+
+    #[test]
+    fn scan_has_signed_artifacts_empty_policy_returns_false() {
+        let dir = tempfile::tempdir().unwrap();
+        std::fs::write(dir.path().join("SKILLS.md"), "content").unwrap();
+
+        let has_signed_artifacts =
+            scan_has_signed_artifacts(dir.path(), &TrustPolicy::default(), &[]).unwrap();
+
         assert!(!has_signed_artifacts);
     }
 
@@ -1009,8 +1042,28 @@ mod tests {
             ..TrustPolicy::default()
         };
 
-        let has_signed_artifacts = scan_has_signed_artifacts(dir.path(), &policy).unwrap();
+        let has_signed_artifacts = scan_has_signed_artifacts(dir.path(), &policy, &[]).unwrap();
         assert!(has_signed_artifacts);
+    }
+
+    #[test]
+    fn run_pre_exec_scan_respects_skip_dirs() {
+        let dir = tempfile::tempdir().unwrap();
+        std::fs::create_dir_all(dir.path().join("generated")).unwrap();
+        std::fs::write(dir.path().join("generated").join("SKILLS.md"), "generated").unwrap();
+        std::fs::write(dir.path().join("SKILLS.md"), "root").unwrap();
+
+        let policy = TrustPolicy {
+            includes: vec!["SKILLS*".to_string()],
+            enforcement: Enforcement::Audit,
+            ..TrustPolicy::default()
+        };
+
+        let result =
+            run_pre_exec_scan(dir.path(), &policy, true, &[String::from("generated")]).unwrap();
+
+        assert_eq!(result.results.len(), 1);
+        assert_eq!(result.results[0].path, dir.path().join("SKILLS.md"));
     }
 
     #[test]
@@ -1024,7 +1077,7 @@ mod tests {
             ..TrustPolicy::default()
         };
 
-        let result = run_pre_exec_scan(dir.path(), &policy, true).unwrap();
+        let result = run_pre_exec_scan(dir.path(), &policy, true, &[]).unwrap();
         assert!(result.should_proceed());
         assert_eq!(result.verified, 0);
         assert_eq!(result.warned, 1);
@@ -1041,7 +1094,7 @@ mod tests {
             ..TrustPolicy::default()
         };
 
-        let result = run_pre_exec_scan(dir.path(), &policy, true).unwrap();
+        let result = run_pre_exec_scan(dir.path(), &policy, true, &[]).unwrap();
         assert!(!result.should_proceed());
         assert_eq!(result.blocked, 1);
     }
@@ -1068,7 +1121,7 @@ mod tests {
             ..TrustPolicy::default()
         };
 
-        let result = run_pre_exec_scan(dir.path(), &policy, true).unwrap();
+        let result = run_pre_exec_scan(dir.path(), &policy, true, &[]).unwrap();
         assert!(!result.should_proceed());
         assert_eq!(result.blocked, 1);
     }
@@ -1085,7 +1138,7 @@ mod tests {
             ..TrustPolicy::default()
         };
 
-        let result = run_pre_exec_scan(dir.path(), &policy, true).unwrap();
+        let result = run_pre_exec_scan(dir.path(), &policy, true, &[]).unwrap();
         assert!(result.should_proceed());
         assert_eq!(result.warned, 2);
     }
@@ -1159,7 +1212,7 @@ mod tests {
         )
         .unwrap();
 
-        let policy = load_scan_policy(dir.path(), true).unwrap();
+        let policy = load_scan_policy(dir.path(), true, &[]).unwrap();
         assert_eq!(policy.enforcement, Enforcement::Warn);
 
         match orig_xdg {
@@ -1188,7 +1241,7 @@ mod tests {
         )
         .unwrap();
 
-        let policy = load_scan_policy(scan_dir.path(), false).unwrap();
+        let policy = load_scan_policy(scan_dir.path(), false, &[]).unwrap();
         assert!(policy.includes.contains(&include_pattern.to_string()));
 
         match orig_xdg {
@@ -1251,7 +1304,7 @@ mod tests {
             ..TrustPolicy::default()
         };
 
-        let result = run_pre_exec_scan(dir.path(), &policy, true).unwrap();
+        let result = run_pre_exec_scan(dir.path(), &policy, true, &[]).unwrap();
         assert!(result.should_proceed());
         assert_eq!(result.verified, 2);
         assert_eq!(result.blocked, 0);
@@ -1299,7 +1352,7 @@ mod tests {
             ..TrustPolicy::default()
         };
 
-        let result = run_pre_exec_scan(dir.path(), &policy, true).unwrap();
+        let result = run_pre_exec_scan(dir.path(), &policy, true, &[]).unwrap();
         // a.md verified, b.py mismatch
         assert_eq!(result.verified, 1);
         assert_eq!(result.blocked, 1);
@@ -1343,7 +1396,7 @@ mod tests {
             ..TrustPolicy::default()
         };
 
-        let result = run_pre_exec_scan(dir.path(), &policy, true).unwrap();
+        let result = run_pre_exec_scan(dir.path(), &policy, true, &[]).unwrap();
         assert_eq!(result.verified, 1); // a.md passes
         assert_eq!(result.blocked, 1); // b.py missing = fail
     }
@@ -1380,7 +1433,7 @@ mod tests {
             ..TrustPolicy::default()
         };
 
-        let result = run_pre_exec_scan(dir.path(), &policy, true).unwrap();
+        let result = run_pre_exec_scan(dir.path(), &policy, true, &[]).unwrap();
         let paths = result.verified_paths();
         assert_eq!(paths.len(), 1);
         assert_eq!(paths[0], dir.path().join("script.py"));
@@ -1422,7 +1475,7 @@ mod tests {
             ..TrustPolicy::default()
         };
 
-        let result = run_pre_exec_scan(dir.path(), &policy, true).unwrap();
+        let result = run_pre_exec_scan(dir.path(), &policy, true, &[]).unwrap();
         // Crypto verification will fail (wrong key), so blocked
         assert!(!result.should_proceed());
         assert_eq!(result.blocked, 1);
@@ -1435,7 +1488,7 @@ mod tests {
         std::fs::write(dir.path().join("src.rs"), "fn main() {}").unwrap();
 
         let policy = TrustPolicy::default();
-        let result = run_pre_exec_scan(dir.path(), &policy, true).unwrap();
+        let result = run_pre_exec_scan(dir.path(), &policy, true, &[]).unwrap();
         assert!(result.should_proceed());
         assert!(result.results.is_empty());
     }
@@ -1450,7 +1503,7 @@ mod tests {
             ..TrustPolicy::default()
         };
 
-        let result = run_pre_exec_scan(dir.path(), &policy, true);
+        let result = run_pre_exec_scan(dir.path(), &policy, true, &[]);
 
         if cfg!(target_os = "linux") {
             assert!(result.is_ok());
@@ -1476,7 +1529,7 @@ mod tests {
             ..TrustPolicy::default()
         };
 
-        let result = run_pre_exec_scan(dir.path(), &policy, true);
+        let result = run_pre_exec_scan(dir.path(), &policy, true, &[]);
         assert!(result.is_ok());
     }
 
@@ -1490,7 +1543,7 @@ mod tests {
             ..TrustPolicy::default()
         };
 
-        let result = run_pre_exec_scan(dir.path(), &policy, true);
+        let result = run_pre_exec_scan(dir.path(), &policy, true, &[]);
         assert!(result.is_ok());
     }
 
@@ -1507,7 +1560,7 @@ mod tests {
 
         // This will fail at verification (unsigned), not at the missing-file check.
         // The point is: the literal check itself passes because the file exists.
-        let result = run_pre_exec_scan(dir.path(), &policy, true);
+        let result = run_pre_exec_scan(dir.path(), &policy, true, &[]);
         assert!(result.is_ok());
     }
 

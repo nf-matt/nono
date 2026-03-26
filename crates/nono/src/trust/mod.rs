@@ -52,7 +52,8 @@ pub use dsse::{
     NONO_POLICY_PREDICATE_TYPE, NONO_PREDICATE_TYPE,
 };
 pub use policy::{
-    evaluate_file, find_included_files, load_policy_from_file, load_policy_from_str, merge_policies,
+    evaluate_file, find_included_files, find_included_files_with_skip_dirs, load_policy_from_file,
+    load_policy_from_str, merge_policies,
 };
 pub use signing::{
     export_public_key, generate_signing_key, key_id_hex, sign_bytes, sign_files,

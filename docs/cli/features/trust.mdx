@@ -477,6 +477,8 @@ nono trust sign-policy --user
 
 When `nono run` launches a command, it scans the working directory for files matching `includes` before applying the sandbox. File discovery does **not** respect `.gitignore` — this prevents hiding files from verification.
 
+To keep startup latency bounded in large repositories, the scan prunes a small built-in set of regenerable heavy directories such as `.git`, `node_modules`, `target`, `dist`, and common cache directories. Hidden directories are otherwise still scanned. You can extend the skip set for a session with `--skip-dir <name>` or persist it in a profile with `skipdirs`.
+
 ```
 nono run --profile claude-code -- claude
   -> Scan CWD for files matching includes patterns

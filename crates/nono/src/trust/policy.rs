@@ -233,65 +233,148 @@ fn is_publisher_blocked(policy: &TrustPolicy, identity: &SignerIdentity) -> bool
         })
 }
 
+/// Well-known directory names that never contain instruction files and are
+/// typically very large. Sorted for binary search.
+const SKIP_DIRS: &[&str] = &[
+    ".cache",
+    ".git",
+    ".gradle",
+    ".hg",
+    ".mypy_cache",
+    ".next",
+    ".nuxt",
+    ".pytest_cache",
+    ".ruff_cache",
+    ".svn",
+    ".terraform",
+    ".tox",
+    ".venv",
+    "__pycache__",
+    "dist",
+    "node_modules",
+    "target",
+    "vendor",
+    "venv",
+];
+
 /// Scan a directory for files matching instruction patterns.
 ///
 /// Returns the list of paths that match any pattern in the trust policy.
-/// Does not recurse into hidden directories (prefixed with `.`) except
-/// `.claude/` which is explicitly included by standard instruction patterns.
+/// Hidden directories are scanned unless they are explicitly listed in the
+/// built-in heavy-directory skip set or provided via `extra_skip_dirs`.
 ///
 /// # Errors
 ///
 /// Returns `NonoError::TrustPolicy` if patterns cannot be compiled, or
 /// `NonoError::Io` if directory traversal fails.
 pub fn find_included_files<P: AsRef<Path>>(policy: &TrustPolicy, root: P) -> Result<Vec<PathBuf>> {
-    use ignore::WalkBuilder;
+    find_included_files_with_skip_dirs(policy, root, &[])
+}
 
+/// Scan a directory for files matching instruction patterns, skipping extra
+/// directory names in addition to the built-in heavy-directory list.
+pub fn find_included_files_with_skip_dirs<P: AsRef<Path>>(
+    policy: &TrustPolicy,
+    root: P,
+    extra_skip_dirs: &[String],
+) -> Result<Vec<PathBuf>> {
     let root = root.as_ref();
     let matcher = policy.include_matcher()?;
-
-    // Trust file discovery must NOT respect .gitignore. An attacker who adds
-    // an instruction file to .gitignore could bypass pre-exec trust enforcement.
-    // We use WalkBuilder only for its built-in directory filtering (.git/, etc.)
-    // and symlink cycle detection, not for gitignore integration.
-    let walker = WalkBuilder::new(root)
-        .hidden(false) // don't skip hidden — .claude/ contains instruction files
-        .git_ignore(false) // DO NOT respect .gitignore — security boundary
-        .git_global(false) // DO NOT respect global gitignore
-        .git_exclude(false) // DO NOT respect .git/info/exclude
-        .follow_links(true) // follow symlinks (symlinked SKILLS.md must not be skipped)
-        .max_depth(Some(16)) // guard against very deep trees
-        .build();
-
+    let extra_skip_dirs: std::collections::HashSet<&str> =
+        extra_skip_dirs.iter().map(String::as_str).collect();
     let mut results = Vec::new();
+    let mut visited = std::collections::HashSet::new();
 
-    for entry in walker {
-        let entry = match entry {
-            Ok(e) => e,
-            Err(_) => continue, // permission error, dangling symlink, etc.
+    if policy.includes.is_empty() {
+        return Ok(results);
+    }
+
+    find_files_recursive(
+        root,
+        root,
+        &matcher,
+        &extra_skip_dirs,
+        &mut results,
+        &mut visited,
+        0,
+    )?;
+
+    results.sort();
+    Ok(results)
+}
+
+fn should_skip_dir(name: &str, extra_skip_dirs: &std::collections::HashSet<&str>) -> bool {
+    SKIP_DIRS.binary_search(&name).is_ok() || extra_skip_dirs.contains(name)
+}
+
+fn find_files_recursive(
+    root: &Path,
+    dir: &Path,
+    matcher: &super::types::IncludePatterns,
+    extra_skip_dirs: &std::collections::HashSet<&str>,
+    results: &mut Vec<PathBuf>,
+    visited: &mut std::collections::HashSet<(u64, u64)>,
+    depth: u32,
+) -> Result<()> {
+    const MAX_DEPTH: u32 = 16;
+    if depth > MAX_DEPTH {
+        return Ok(());
+    }
+
+    let entries = std::fs::read_dir(dir).map_err(NonoError::Io)?;
+
+    for entry in entries {
+        let entry = entry.map_err(NonoError::Io)?;
+        let path = entry.path();
+        let meta = match std::fs::metadata(&path) {
+            Ok(metadata) => metadata,
+            Err(_) => continue,
         };
 
-        // Skip directories and the root itself
-        if entry.file_type().is_some_and(|ft| ft.is_dir()) {
-            continue;
-        }
+        if meta.is_dir() {
+            let name = entry.file_name();
+            let name_str = name.to_string_lossy();
+            if should_skip_dir(&name_str, extra_skip_dirs) {
+                continue;
+            }
 
-        let path = entry.path();
+            #[cfg(unix)]
+            let file_id = Some({
+                use std::os::unix::fs::MetadataExt;
+                (meta.dev(), meta.ino())
+            });
+            #[cfg(not(unix))]
+            let file_id: Option<(u64, u64)> = None;
 
-        // Skip Sigstore sidecar bundles
-        if path.to_string_lossy().ends_with(".bundle") {
-            continue;
-        }
+            if let Some(file_id) = file_id {
+                if !visited.insert(file_id) {
+                    continue;
+                }
+            }
 
-        // Match against relative path from root
-        if let Ok(relative) = path.strip_prefix(root) {
-            if matcher.is_match(relative) {
-                results.push(path.to_path_buf());
+            find_files_recursive(
+                root,
+                &path,
+                matcher,
+                extra_skip_dirs,
+                results,
+                visited,
+                depth + 1,
+            )?;
+        } else if meta.is_file() {
+            if path.to_string_lossy().ends_with(".bundle") {
+                continue;
+            }
+
+            if let Ok(relative) = path.strip_prefix(root) {
+                if matcher.is_match(relative) {
+                    results.push(path);
+                }
             }
         }
     }
 
-    results.sort();
-    Ok(results)
+    Ok(())
 }
 
 #[cfg(test)]
@@ -812,7 +895,7 @@ mod tests {
     }
 
     #[test]
-    fn find_included_files_skips_hidden_dirs() {
+    fn find_included_files_skips_git_dir() {
         let dir = tempfile::tempdir().unwrap();
         let hidden = dir.path().join(".git");
         std::fs::create_dir_all(&hidden).unwrap();
@@ -821,6 +904,50 @@ mod tests {
         let policy = make_policy(Enforcement::Deny, vec![], vec![]);
         let files = find_included_files(&policy, dir.path()).unwrap();
         assert!(files.is_empty());
+    }
+
+    #[test]
+    fn find_included_files_in_non_special_hidden_dir() {
+        let dir = tempfile::tempdir().unwrap();
+        let hidden = dir.path().join(".hidden").join("commands");
+        std::fs::create_dir_all(&hidden).unwrap();
+        std::fs::write(hidden.join("deploy.md"), "content").unwrap();
+
+        let mut policy = make_policy(Enforcement::Deny, vec![], vec![]);
+        policy.includes.push(".hidden/**/*.md".to_string());
+
+        let files = find_included_files(&policy, dir.path()).unwrap();
+        assert_eq!(files, vec![hidden.join("deploy.md")]);
+    }
+
+    #[test]
+    fn find_included_files_skips_well_known_heavy_dirs() {
+        let dir = tempfile::tempdir().unwrap();
+        let node_modules = dir.path().join("node_modules");
+        std::fs::create_dir_all(&node_modules).unwrap();
+        std::fs::write(node_modules.join("SKILLS.md"), "content").unwrap();
+        std::fs::write(dir.path().join("SKILLS.md"), "content").unwrap();
+
+        let policy = make_policy(Enforcement::Deny, vec![], vec![]);
+        let files = find_included_files(&policy, dir.path()).unwrap();
+
+        assert_eq!(files, vec![dir.path().join("SKILLS.md")]);
+    }
+
+    #[test]
+    fn find_included_files_respects_extra_skip_dirs() {
+        let dir = tempfile::tempdir().unwrap();
+        let generated = dir.path().join("generated");
+        std::fs::create_dir_all(&generated).unwrap();
+        std::fs::write(generated.join("SKILLS.md"), "content").unwrap();
+        std::fs::write(dir.path().join("CLAUDE.md"), "content").unwrap();
+
+        let policy = make_policy(Enforcement::Deny, vec![], vec![]);
+        let files =
+            find_included_files_with_skip_dirs(&policy, dir.path(), &[String::from("generated")])
+                .unwrap();
+
+        assert_eq!(files, vec![dir.path().join("CLAUDE.md")]);
     }
 
     #[test]

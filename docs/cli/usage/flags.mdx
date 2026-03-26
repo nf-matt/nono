@@ -698,6 +698,22 @@ Include ALL directories in rollback snapshots, overriding all auto-exclusions. T
 nono run --rollback --rollback-all -- cargo test
 ```
 
+#### `--skip-dir`
+
+Skip a directory name during pre-exec trust scanning and rollback preflight. Repeatable. Matches exact path components, not full paths. This is useful for large generated trees that are safe to exclude in your workflow.
+
+```bash
+# Skip a generated docs tree for this run
+nono run --skip-dir docs-build --allow-cwd -- my-agent
+
+# Skip multiple large trees
+nono run --skip-dir vendor-cache --skip-dir generated --allow-cwd -- my-agent
+```
+
+<Note>
+  `--skip-dir` does not change sandbox permissions. It only prunes trust discovery and rollback preflight traversal. Hidden directories are still scanned unless they are in the built-in heavy-dir list or explicitly named here.
+</Note>
+
 #### `--no-diagnostics`
 
 Suppress the diagnostic footer when the command exits non-zero. Useful for scripts that parse stderr and need stable output.

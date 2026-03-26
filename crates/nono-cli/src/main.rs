@@ -618,6 +618,8 @@ fn run_sandbox(run_args: RunArgs, silent: bool) -> Result<()> {
     }
 
     let mut prepared = prepare_sandbox(&args, silent)?;
+    let mut merged_skip_dirs = prepared.skip_dirs.clone();
+    merged_skip_dirs.extend(run_args.skip_dir.iter().cloned());
 
     if prepared.allow_launch_services_active {
         print_allow_launch_services_warning(silent);
@@ -648,8 +650,9 @@ fn run_sandbox(run_args: RunArgs, silent: bool) -> Result<()> {
         }
         (None, None)
     } else {
-        let trust_policy = trust_scan::load_scan_policy(&scan_root, false)?;
-        let result = trust_scan::run_pre_exec_scan(&scan_root, &trust_policy, silent)?;
+        let trust_policy = trust_scan::load_scan_policy(&scan_root, false, &merged_skip_dirs)?;
+        let result =
+            trust_scan::run_pre_exec_scan(&scan_root, &trust_policy, silent, &merged_skip_dirs)?;
         if !result.results.is_empty() {
             info!(
                 "Trust scan: {} verified, {} blocked, {} warned ({} total files)",
@@ -868,6 +871,7 @@ fn run_sandbox(run_args: RunArgs, silent: bool) -> Result<()> {
             protected_paths: verified_protected_paths,
             rollback_exclude_patterns: merged_patterns,
             rollback_exclude_globs: merged_globs,
+            skip_dirs: merged_skip_dirs,
             capability_elevation: prepared.capability_elevation,
             proxy_active,
             network_profile,
@@ -1055,6 +1059,8 @@ struct ExecutionFlags {
     rollback_exclude_patterns: Vec<String>,
     /// Profile-specific rollback exclusion globs (filename matching)
     rollback_exclude_globs: Vec<String>,
+    /// Directory names to skip during trust scanning and rollback preflight.
+    skip_dirs: Vec<String>,
     /// Whether runtime capability elevation is enabled (seccomp-notify + PTY mux).
     /// When false, supervised mode runs with static capabilities only.
     capability_elevation: bool,
@@ -1111,6 +1117,7 @@ impl ExecutionFlags {
             protected_paths: Vec::new(),
             rollback_exclude_patterns: Vec::new(),
             rollback_exclude_globs: Vec::new(),
+            skip_dirs: Vec::new(),
             capability_elevation: false,
             proxy_active: false,
             network_profile: None,
@@ -1597,8 +1604,11 @@ fn execute_sandboxed(
                         // and print a one-line notice. This ensures zero-flag usage Just Works.
                         // Directories listed in --rollback-include are kept (not auto-excluded).
                         if !flags.rollback_all {
-                            let preflight_result =
-                                rollback_preflight::run_preflight(&tracked_paths, &exclusion);
+                            let preflight_result = rollback_preflight::run_preflight(
+                                &tracked_paths,
+                                &exclusion,
+                                &flags.skip_dirs,
+                            );
 
                             if preflight_result.needs_warning() {
                                 // Filter out any dirs the user explicitly wants to include
@@ -1836,6 +1846,8 @@ struct PreparedSandbox {
     rollback_exclude_patterns: Vec<String>,
     /// Profile-specific rollback exclusion globs (filename matching)
     rollback_exclude_globs: Vec<String>,
+    /// Directory names to skip during trust scanning and rollback preflight.
+    skip_dirs: Vec<String>,
     /// Network profile name from profile config (if any)
     network_profile: Option<String>,
     /// Additional proxy-allowed domains from profile config
@@ -2068,6 +2080,10 @@ fn prepare_sandbox(args: &SandboxArgs, silent: bool) -> Result<PreparedSandbox> 
     let profile_rollback_globs = loaded_profile
         .as_ref()
         .map(|p| p.rollback.exclude_globs.clone())
+        .unwrap_or_default();
+    let profile_skip_dirs = loaded_profile
+        .as_ref()
+        .map(|p| p.skipdirs.clone())
         .unwrap_or_default();
     let profile_network_profile = loaded_profile.as_ref().and_then(|p| {
         p.network
@@ -2327,6 +2343,7 @@ fn prepare_sandbox(args: &SandboxArgs, silent: bool) -> Result<PreparedSandbox> 
         secrets: loaded_secrets,
         rollback_exclude_patterns: profile_rollback_patterns,
         rollback_exclude_globs: profile_rollback_globs,
+        skip_dirs: profile_skip_dirs,
         network_profile: profile_network_profile,
         allow_domain: profile_allow_domain,
         credentials: profile_credentials,
@@ -2554,6 +2571,7 @@ mod tests {
             secrets: Vec::new(),
             rollback_exclude_patterns: Vec::new(),
             rollback_exclude_globs: Vec::new(),
+            skip_dirs: Vec::new(),
             network_profile: Some("developer".to_string()),
             allow_domain: vec!["docs.python.org".to_string()],
             credentials: vec!["github".to_string()],
@@ -2593,6 +2611,7 @@ mod tests {
             secrets: Vec::new(),
             rollback_exclude_patterns: Vec::new(),
             rollback_exclude_globs: Vec::new(),
+            skip_dirs: Vec::new(),
             network_profile: Some("developer".to_string()),
             allow_domain: vec!["docs.python.org".to_string()],
             credentials: vec!["github".to_string()],

@@ -122,7 +122,7 @@ For keyed bundles, the public key is loaded from the system keystore and the ECD
 
 ### Pre-exec Scan
 
-Before fork/exec, nono scans the working directory for files matching `includes`. File discovery intentionally does **not** respect `.gitignore` — adding a file to `.gitignore` cannot bypass trust verification. This is the baseline -- it catches files present at session start. If any file fails verification and enforcement is `deny`, the process never starts.
+Before fork/exec, nono scans the working directory for files matching `includes`. File discovery intentionally does **not** respect `.gitignore` — adding a file to `.gitignore` cannot bypass trust verification. To avoid pathological startup cost in large repos, the walker skips a fixed set of heavy directories such as `.git`, `node_modules`, `target`, `dist`, and common caches, plus any user-configured `--skip-dir` / `skipdirs` entries. Other hidden directories remain visible to the scan. This is the baseline -- it catches files present at session start. If any file fails verification and enforcement is `deny`, the process never starts.
 
 The pre-exec scan also verifies the trust policy's own signature before trusting it.
 

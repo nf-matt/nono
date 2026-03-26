@@ -313,6 +313,18 @@ The `rollback` section controls which files are excluded from [atomic rollback](
 
 These exclusions are combined with gitignore patterns from the working directory.
 
+### Skip Directories
+
+Use `skipdirs` to extend the built-in heavy-directory skip list for pre-exec trust scanning and rollback preflight:
+
+```json
+{
+  "skipdirs": ["generated", "vendor-cache"]
+}
+```
+
+Entries are matched as exact path component names. They do not grant or deny sandbox access; they only prune traversal during trust discovery and rollback heuristics.
+
 ### Environment Variables
 
 Profiles support these environment variables in path values:
