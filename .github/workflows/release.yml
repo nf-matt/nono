@@ -152,90 +152,21 @@ jobs:
 
   docker:
     name: Publish Docker Image
-    needs: build
-    runs-on: ubuntu-latest
-    permissions:
-      packages: write
-      id-token: write
-    if: ${{ !contains(inputs.tag || github.ref_name, 'alpha') && !contains(inputs.tag || github.ref_name, 'beta') && !contains(inputs.tag || github.ref_name, 'rc') }}
-    steps:
-      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6
-        with:
-          ref: ${{ env.RELEASE_TAG }}
-
-      - name: Download Linux amd64 artifact
-        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
-        with:
-          name: nono-x86_64-unknown-linux-gnu
-          path: docker-context/
-
-      - name: Download Linux arm64 artifact
-        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
-        with:
-          name: nono-aarch64-unknown-linux-gnu
-          path: docker-context/
-
-      - name: Extract and prepare binaries
-        run: |
-          cd docker-context
-          tar xzf nono-${{ env.RELEASE_TAG }}-x86_64-unknown-linux-gnu.tar.gz
-          mv nono nono-amd64
-          tar xzf nono-${{ env.RELEASE_TAG }}-aarch64-unknown-linux-gnu.tar.gz
-          mv nono nono-arm64
-          chmod +x nono-amd64 nono-arm64
-          cp ../Dockerfile .
-
-      - name: Set up QEMU
-        uses: docker/setup-qemu-action@c7c53464625b32c7a7e944ae62b3e17d2b600130 # v3.7.0
-
-      - name: Set up Docker Buildx
-        uses: docker/setup-buildx-action@8d2750c68a42422c14e847fe6c8ac0403b4cbd6f # v3.12.0
-
-      - name: Log in to ghcr.io
-        uses: docker/login-action@c94ce9fb468520275223c153574b00df6fe4bcc9 # v3.7.0
-        with:
-          registry: ghcr.io
-          username: ${{ github.actor }}
-          password: ${{ secrets.GITHUB_TOKEN }}
-
-      - name: Compute Docker tags
-        id: tags
-        run: |
-          VERSION="${RELEASE_TAG#v}"
-          MAJOR_MINOR="${VERSION%.*}"
-          TAGS="ghcr.io/always-further/nono:${VERSION}"
-          TAGS="${TAGS},ghcr.io/always-further/nono:${MAJOR_MINOR}"
-          TAGS="${TAGS},ghcr.io/always-further/nono:latest"
-          echo "tags=${TAGS}" >> "$GITHUB_OUTPUT"
-
-      - name: Build and push
-        id: push
-        uses: docker/build-push-action@10e90e3645eae34f1e60eeb005ba3a3d33f178e8 # v6.19.2
-        with:
-          context: docker-context
-          file: docker-context/Dockerfile
-          platforms: linux/amd64,linux/arm64
-          push: true
-          tags: ${{ steps.tags.outputs.tags }}
-          labels: |
-            org.opencontainers.image.source=https://github.com/always-further/nono
-            org.opencontainers.image.version=${{ env.RELEASE_TAG }}
-            org.opencontainers.image.description=Capability-based sandboxing for untrusted AI agents
-
-      - name: Install Cosign
-        uses: sigstore/cosign-installer@7e8b541eb2e61bf99390e1afd4be13a184e9ebc5 # v3.10.1
-
-      - name: Sign image with Cosign
-        run: |
-          cosign sign --yes \
-            ghcr.io/always-further/nono@${{ steps.push.outputs.digest }}
+    needs: release
+    if: ${{ !contains(github.event.inputs.tag || github.ref_name, 'alpha') && !contains(github.event.inputs.tag || github.ref_name, 'beta') && !contains(github.event.inputs.tag || github.ref_name, 'rc') }}
+    uses: ./.github/workflows/image-build.yml
+    with:
+      ref: ${{ github.event.inputs.tag || github.ref_name }}
+      version: ${{ github.event.inputs.tag || github.ref_name }}
+      push: true
+    secrets: inherit
 
   publish-crates:
     name: Publish to crates.io
     needs: release
     runs-on: ubuntu-latest
     # Only publish stable releases to crates.io
-    if: ${{ !contains(inputs.tag || github.ref_name, 'alpha') && !contains(inputs.tag || github.ref_name, 'beta') && !contains(inputs.tag || github.ref_name, 'rc') }}
+    if: ${{ !contains(github.event.inputs.tag || github.ref_name, 'alpha') && !contains(github.event.inputs.tag || github.ref_name, 'beta') && !contains(github.event.inputs.tag || github.ref_name, 'rc') }}
     steps:
       - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6
         with:
@@ -272,7 +203,7 @@ jobs:
     name: Bump Homebrew Core Formula
     needs: release
     runs-on: ubuntu-latest
-    if: ${{ !contains(inputs.tag || github.ref_name, 'alpha') && !contains(inputs.tag || github.ref_name, 'beta') && !contains(inputs.tag || github.ref_name, 'rc') }}
+    if: ${{ !contains(github.event.inputs.tag || github.ref_name, 'alpha') && !contains(github.event.inputs.tag || github.ref_name, 'beta') && !contains(github.event.inputs.tag || github.ref_name, 'rc') }}
     steps:
       - name: Bump homebrew-core formula
         uses: mislav/bump-homebrew-formula-action@ccf2332299a883f6af50a1d2d41e5df7904dd769 # v4.1

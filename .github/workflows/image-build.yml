@@ -1,0 +1,195 @@
+name: Image Build
+
+on:
+  workflow_call:
+    inputs:
+      ref:
+        description: Git ref to build from
+        required: true
+        type: string
+      version:
+        description: Version or tag to use for image tagging
+        required: false
+        type: string
+      push:
+        description: Whether to push the built image to GHCR
+        required: false
+        type: boolean
+        default: false
+  workflow_dispatch:
+    inputs:
+      ref:
+        description: Git ref to build from (branch, tag, or SHA)
+        required: true
+        type: string
+        default: main
+      version:
+        description: Optional version/tag override for the image
+        required: false
+        type: string
+      push:
+        description: Push the built image to GHCR
+        required: false
+        type: boolean
+        default: false
+
+permissions:
+  contents: read
+
+env:
+  CARGO_TERM_COLOR: always
+
+jobs:
+  build-binaries:
+    name: Build ${{ matrix.target }} image binary
+    runs-on: ubuntu-22.04
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - target: x86_64-unknown-linux-gnu
+            output_name: nono-amd64
+          - target: aarch64-unknown-linux-gnu
+            output_name: nono-arm64
+    steps:
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6
+        with:
+          ref: ${{ inputs.ref }}
+
+      - name: Install system dependencies (x86_64)
+        if: matrix.target != 'aarch64-unknown-linux-gnu'
+        run: sudo apt-get update && sudo apt-get install -y libdbus-1-dev pkg-config
+
+      - name: Install Rust toolchain
+        uses: dtolnay/rust-toolchain@631a55b12751854ce901bb631d5902ceb48146f7 # stable
+        with:
+          targets: ${{ matrix.target }}
+
+      - name: Install cross (aarch64)
+        if: matrix.target == 'aarch64-unknown-linux-gnu'
+        run: cargo install cross
+
+      - name: Build (x86_64)
+        if: matrix.target != 'aarch64-unknown-linux-gnu'
+        run: cargo build --release --target ${{ matrix.target }} -p nono-cli
+
+      - name: Build (aarch64)
+        if: matrix.target == 'aarch64-unknown-linux-gnu'
+        run: cross build --release --target aarch64-unknown-linux-gnu -p nono-cli
+
+      - name: Prepare binary artifact
+        run: |
+          mkdir -p image-artifact
+          cp "target/${{ matrix.target }}/release/nono" "image-artifact/${{ matrix.output_name }}"
+
+      - name: Upload binary artifact
+        uses: actions/upload-artifact@bbbca2ddaa5d8feaa63e36b76fdaad77386f024f # v7.0.0
+        with:
+          name: ${{ matrix.output_name }}
+          path: image-artifact/${{ matrix.output_name }}
+
+  build-image:
+    name: Build image
+    needs: build-binaries
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      packages: write
+      id-token: write
+    steps:
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6
+        with:
+          ref: ${{ inputs.ref }}
+
+      - name: Download Linux amd64 artifact
+        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+        with:
+          name: nono-amd64
+          path: docker-context/
+
+      - name: Download Linux arm64 artifact
+        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+        with:
+          name: nono-arm64
+          path: docker-context/
+
+      - name: Prepare Docker context
+        run: |
+          cp Dockerfile docker-context/
+          chmod +x docker-context/nono-amd64 docker-context/nono-arm64
+
+      - name: Resolve image metadata
+        id: meta
+        shell: bash
+        run: |
+          RAW_VERSION="${{ inputs.version }}"
+          if [ -z "$RAW_VERSION" ]; then
+            RAW_VERSION="${{ inputs.ref }}"
+          fi
+
+          RAW_VERSION="${RAW_VERSION#refs/heads/}"
+          RAW_VERSION="${RAW_VERSION#refs/tags/}"
+          VERSION="${RAW_VERSION#v}"
+          REF_SLUG="$(printf '%s' "${{ inputs.ref }}" | tr '/:@' '-' | tr -cd '[:alnum:]._-')"
+          if [ -z "$REF_SLUG" ]; then
+            REF_SLUG="manual"
+          fi
+
+          SHA_SHORT="$(git rev-parse --short=12 HEAD)"
+          if [ -z "$VERSION" ]; then
+            VERSION="${REF_SLUG}-${SHA_SHORT}"
+          fi
+
+          STABLE=true
+          if [[ "$VERSION" == *alpha* ]] || [[ "$VERSION" == *beta* ]] || [[ "$VERSION" == *rc* ]]; then
+            STABLE=false
+          fi
+
+          TAGS="ghcr.io/always-further/nono:${VERSION}"
+          if [ "${{ inputs.push }}" = "true" ] && [ "$STABLE" = "true" ] && [[ "$VERSION" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
+            MAJOR_MINOR="${VERSION%.*}"
+            TAGS="${TAGS},ghcr.io/always-further/nono:${MAJOR_MINOR}"
+            TAGS="${TAGS},ghcr.io/always-further/nono:latest"
+          fi
+
+          echo "version=$VERSION" >> "$GITHUB_OUTPUT"
+          echo "stable=$STABLE" >> "$GITHUB_OUTPUT"
+          echo "tags=$TAGS" >> "$GITHUB_OUTPUT"
+
+      - name: Set up QEMU
+        uses: docker/setup-qemu-action@c7c53464625b32c7a7e944ae62b3e17d2b600130 # v3.7.0
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@8d2750c68a42422c14e847fe6c8ac0403b4cbd6f # v3.12.0
+
+      - name: Log in to ghcr.io
+        if: ${{ inputs.push }}
+        uses: docker/login-action@c94ce9fb468520275223c153574b00df6fe4bcc9 # v3.7.0
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Build and push
+        id: push
+        uses: docker/build-push-action@10e90e3645eae34f1e60eeb005ba3a3d33f178e8 # v6.19.2
+        with:
+          context: docker-context
+          file: docker-context/Dockerfile
+          platforms: linux/amd64,linux/arm64
+          push: ${{ inputs.push }}
+          tags: ${{ steps.meta.outputs.tags }}
+          labels: |
+            org.opencontainers.image.source=https://github.com/always-further/nono
+            org.opencontainers.image.version=${{ steps.meta.outputs.version }}
+            org.opencontainers.image.description=Capability-based sandboxing for untrusted AI agents
+
+      - name: Install Cosign
+        if: ${{ inputs.push }}
+        uses: sigstore/cosign-installer@7e8b541eb2e61bf99390e1afd4be13a184e9ebc5 # v3.10.1
+
+      - name: Sign image with Cosign
+        if: ${{ inputs.push }}
+        run: |
+          cosign sign --yes \
+            ghcr.io/always-further/nono@${{ steps.push.outputs.digest }}
