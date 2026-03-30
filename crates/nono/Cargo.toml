@@ -46,3 +46,4 @@ keyring = { version = "3", features = ["apple-native"] }
 
 [dev-dependencies]
 tempfile.workspace = true
+jsonschema = "0.45"
