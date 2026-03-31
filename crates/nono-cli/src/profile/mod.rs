@@ -1446,6 +1446,7 @@ pub(crate) fn is_valid_profile_name(name: &str) -> bool {
 /// - $XDG_DATA_HOME: XDG data directory
 /// - $XDG_STATE_HOME: XDG state directory
 /// - $XDG_CACHE_HOME: XDG cache directory
+/// - $XDG_RUNTIME_DIR: XDG runtime directory (no default; left unexpanded when unset)
 /// - $TMPDIR: System temporary directory
 /// - $UID: Current user ID
 ///
@@ -1491,13 +1492,21 @@ pub fn expand_vars(path: &str, workdir: &Path) -> Result<PathBuf> {
     let xdg_cache = std::env::var("XDG_CACHE_HOME")
         .unwrap_or_else(|_| format!("{}", PathBuf::from(&home).join(".cache").display()));
 
+    // $XDG_RUNTIME_DIR has no default per the XDG Base Directory spec.
+    // When unset, leave the variable unexpanded so the path won't resolve.
+    let xdg_runtime = std::env::var("XDG_RUNTIME_DIR").ok();
+
     // Validate XDG paths are absolute
-    for (var, val) in [
+    let mut xdg_vars: Vec<(&str, &str)> = vec![
         ("XDG_CONFIG_HOME", &xdg_config),
         ("XDG_DATA_HOME", &xdg_data),
         ("XDG_STATE_HOME", &xdg_state),
         ("XDG_CACHE_HOME", &xdg_cache),
-    ] {
+    ];
+    if let Some(ref rt) = xdg_runtime {
+        xdg_vars.push(("XDG_RUNTIME_DIR", rt));
+    }
+    for (var, val) in &xdg_vars {
         if !Path::new(val).is_absolute() {
             return Err(NonoError::EnvVarValidation {
                 var: var.to_string(),
@@ -1506,12 +1515,17 @@ pub fn expand_vars(path: &str, workdir: &Path) -> Result<PathBuf> {
         }
     }
 
-    let expanded = expanded
+    let mut expanded = expanded
         .replace("$HOME", &home)
         .replace("$XDG_CONFIG_HOME", &xdg_config)
         .replace("$XDG_STATE_HOME", &xdg_state)
         .replace("$XDG_CACHE_HOME", &xdg_cache)
         .replace("$XDG_DATA_HOME", &xdg_data);
+
+    // Only expand $XDG_RUNTIME_DIR when set; leave literal otherwise
+    if let Some(ref rt) = xdg_runtime {
+        expanded = expanded.replace("$XDG_RUNTIME_DIR", rt);
+    }
 
     Ok(PathBuf::from(expanded))
 }
@@ -1633,6 +1647,32 @@ mod tests {
         }
         if let Some(cache) = original_cache {
             env::set_var("XDG_CACHE_HOME", cache);
+        }
+    }
+
+    #[test]
+    fn test_expand_vars_xdg_runtime_dir() {
+        let original_runtime = env::var("XDG_RUNTIME_DIR").ok();
+
+        env::set_var("XDG_RUNTIME_DIR", "/run/user/1000");
+
+        let workdir = PathBuf::from("/projects/myapp");
+        let expanded = expand_vars("$XDG_RUNTIME_DIR/pulse", &workdir).expect("valid env");
+        assert_eq!(expanded, PathBuf::from("/run/user/1000/pulse"));
+
+        // When unset, $XDG_RUNTIME_DIR has no default per the spec — the
+        // variable should be left unexpanded so the path won't resolve.
+        env::remove_var("XDG_RUNTIME_DIR");
+        let expanded = expand_vars("$XDG_RUNTIME_DIR/pulse", &workdir).expect("valid env");
+        assert_eq!(
+            expanded,
+            PathBuf::from("$XDG_RUNTIME_DIR/pulse"),
+            "unset XDG_RUNTIME_DIR should leave variable unexpanded"
+        );
+
+        // Restore
+        if let Some(runtime) = original_runtime {
+            env::set_var("XDG_RUNTIME_DIR", runtime);
         }
     }
 

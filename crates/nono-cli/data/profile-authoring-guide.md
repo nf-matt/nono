@@ -418,6 +418,7 @@ The following variables are expanded in all path fields (`filesystem.*`, `policy
 | `$XDG_DATA_HOME`   | XDG data directory (default: `$HOME/.local/share`) |
 | `$XDG_STATE_HOME`  | XDG state directory (default: `$HOME/.local/state`) |
 | `$XDG_CACHE_HOME`  | XDG cache directory (default: `$HOME/.cache`) |
+| `$XDG_RUNTIME_DIR` | XDG runtime directory (no default; left unexpanded when unset) |
 
 Always use these variables instead of hardcoded absolute paths to keep profiles portable across machines and users.
 
