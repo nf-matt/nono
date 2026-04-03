@@ -1,5 +1,51 @@
 # Changelog
 
+## [0.28.0] - 2026-04-03
+
+### Bug Fixes
+
+- *(proxy)* Add tls_ca field to file:// credential test fixtures
+
+- *(proxy)* Simplify tls_ca to tilde expansion and doc clarification
+
+- *(proxy)* Expand and validate tls_ca paths at credential resolution
+
+
+### Features
+
+- *(policy)* Expand git config paths in credentials group
+
+- *(credential,proxy)* Add missing tls_ca and tls_connector fields
+
+- *(proxy)* Add custom CA certificate support for upstream TLS (closes #545)
+
+- *(policy)* Skip system temp grants when HOME is nested under TMPDIR
+
+- *(policy)* Split homebrew group into platform-specific variants
+
+
+### Refactoring
+
+- *(proxy)* Wrap CA file read in Zeroizing and improve error messages
+
+- *(proxy)* Reuse policy::expand_path for tls_ca expansion
+
+- *(capability_ext)* Extract locked test helpers for env isolation
+
+- *(test)* Extract environment variable guard into reusable utility
+
+
+### Testing
+
+- *(cli)* Remove proptest regression file for manifest roundtrip
+
+- *(profile,query)* Isolate environment variables and fix symlink test
+
+
+### Style
+
+- Fix rustfmt in tls_ca path expansion closure
+
 ## [0.27.0] - 2026-04-02
 
 ### Bug Fixes
