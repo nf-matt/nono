@@ -663,7 +663,7 @@
         "capability_elevation": false
       },
       "filesystem": {
-        "allow": ["$HOME/.claude"],
+        "allow": ["$HOME/.claude", "$HOME/.cache/claude"],
         "allow_file": ["$HOME/.claude.json", "$HOME/.claude.json.lock"]
       },
       "network": { "block": false },

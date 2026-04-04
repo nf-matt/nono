@@ -31,6 +31,10 @@ mod tests {
             .security
             .groups
             .contains(&"deny_credentials".to_string()));
+        assert!(profile
+            .filesystem
+            .allow
+            .contains(&"$HOME/.cache/claude".to_string()));
     }
 
     #[test]
