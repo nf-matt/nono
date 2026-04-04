@@ -257,7 +257,14 @@ pub async fn start(config: ProxyConfig) -> Result<ProxyHandle> {
             .filter(|host| {
                 let normalised = {
                     let h = host.to_lowercase();
-                    if h.contains(':') {
+                    if h.starts_with('[') {
+                        // IPv6 literal: "[::1]:443" has port, "[::1]" needs default
+                        if h.contains("]:") {
+                            h
+                        } else {
+                            format!("{}:443", h)
+                        }
+                    } else if h.contains(':') {
                         h
                     } else {
                         format!("{}:443", h)
