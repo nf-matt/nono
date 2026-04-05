@@ -8,7 +8,9 @@
   },
   "favicon": "/assets/logo.png",
   "colors": {
-    "primary": "#6366F1"
+    "primary": "#e8724a",
+    "light": "#e8724a",
+    "dark": "#e8724a"
   },
   "appearance": {
     "default": "dark"
