@@ -597,6 +597,7 @@ fn install_manifest_artifact(
                     artifact.path
                 ))
             })?;
+            validate_safe_name(install_name, "install_as")?;
             let path = staging_root
                 .join("profiles")
                 .join(format!("{install_name}.json"));
@@ -647,8 +648,15 @@ fn install_manifest_artifact(
             path
         }
         ArtifactType::Plugin => {
+            if artifact.path.contains("..") {
+                return Err(NonoError::PackageInstall(format!(
+                    "artifact path contains unsafe component: '{}'",
+                    artifact.path
+                )));
+            }
             let path = staging_root.join(&artifact.path);
             write_bytes(&path, bytes)?;
+            validate_path_within(staging_root, &path)?;
             if artifact.path.contains("/bin/") || artifact.path.ends_with(".sh") {
                 ensure_executable(&path)?;
             }
@@ -659,17 +667,24 @@ fn install_manifest_artifact(
     // If the manifest declares an install_dir, also place the file there.
     let external_path = if let Some(install_dir) = &artifact.install_dir {
         let expanded = expand_tilde(install_dir)?;
+        if !expanded.is_absolute() {
+            return Err(NonoError::PackageInstall(format!(
+                "install_dir must be an absolute path, got '{install_dir}'"
+            )));
+        }
         let dest_name = artifact
             .install_as
             .as_deref()
             .map(|n| {
+                validate_safe_name(n, "install_as")?;
                 // For profiles, install_as is already just the name
-                if artifact.artifact_type == ArtifactType::Profile {
+                Ok(if artifact.artifact_type == ArtifactType::Profile {
                     format!("{n}.json")
                 } else {
                     n.to_string()
-                }
+                })
             })
+            .transpose()?
             .unwrap_or_else(|| {
                 store_path
                     .file_name()
@@ -719,6 +734,7 @@ fn create_profile_symlinks(package_ref: &PackageRef, manifest: &PackageManifest)
                     artifact.path
                 ))
             })?;
+            validate_safe_name(install_name, "install_as")?;
             let link_path = package::profile_link_path(install_name)?;
             let target = package::package_install_dir(&package_ref.namespace, &package_ref.name)?
                 .join("profiles")
@@ -1007,6 +1023,34 @@ fn file_name(path: &str) -> Result<&str> {
         .file_name()
         .and_then(|name| name.to_str())
         .ok_or_else(|| NonoError::PackageInstall(format!("invalid artifact path '{}'", path)))
+}
+
+fn validate_safe_name(name: &str, field: &str) -> Result<()> {
+    if name.is_empty()
+        || name.contains('/')
+        || name.contains('\\')
+        || name == "."
+        || name == ".."
+        || name.contains("..")
+    {
+        return Err(NonoError::PackageInstall(format!(
+            "{field} contains unsafe path component: '{name}'"
+        )));
+    }
+    Ok(())
+}
+
+fn validate_path_within(base: &Path, full: &Path) -> Result<()> {
+    let canonical_base = base.canonicalize().map_err(NonoError::Io)?;
+    let canonical_full = full.canonicalize().map_err(NonoError::Io)?;
+    if !canonical_full.starts_with(&canonical_base) {
+        return Err(NonoError::PackageInstall(format!(
+            "path '{}' escapes the allowed directory '{}'",
+            full.display(),
+            base.display()
+        )));
+    }
+    Ok(())
 }
 
 fn sha256_hex(bytes: &[u8]) -> String {
