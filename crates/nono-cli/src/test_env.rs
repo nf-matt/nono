@@ -33,8 +33,15 @@ impl EnvVarGuard {
 
     /// Remove an env var mid-test (e.g. to test fallback behaviour).
     ///
-    /// The original value captured at construction is still restored on drop.
+    /// Only keys passed to [`set_all`](Self::set_all) can be removed — the
+    /// guard restores their original values on drop. Panics if `key` is not
+    /// managed by this guard, since the removal would not be reverted.
     pub fn remove(&self, key: &str) {
+        assert!(
+            self.original.iter().any(|(k, _)| *k == key),
+            "EnvVarGuard::remove called with unmanaged key: '{key}'. \
+             Only keys passed to set_all can be removed."
+        );
         std::env::remove_var(key);
     }
 }
