@@ -1422,31 +1422,37 @@ mod tests {
     #[cfg(feature = "test-trust-overrides")]
     #[test]
     fn user_trust_policy_path_prefers_test_override() {
+        let _lock = match crate::test_env::ENV_LOCK.lock() {
+            Ok(g) => g,
+            Err(p) => p.into_inner(),
+        };
         let dir = tempfile::tempdir().unwrap();
         let override_path = dir.path().join("trust-policy.json");
-        let original = std::env::var(TEST_USER_POLICY_PATH_ENV).ok();
-
-        std::env::set_var(TEST_USER_POLICY_PATH_ENV, &override_path);
+        let _env = crate::test_env::EnvVarGuard::set_all(&[(
+            TEST_USER_POLICY_PATH_ENV,
+            override_path.to_str().unwrap(),
+        )]);
         let resolved = user_trust_policy_path();
-
-        match original {
-            Some(value) => std::env::set_var(TEST_USER_POLICY_PATH_ENV, value),
-            None => std::env::remove_var(TEST_USER_POLICY_PATH_ENV),
-        }
 
         assert_eq!(resolved, Some(override_path));
     }
 
     #[test]
     fn load_trust_policy_returns_default_when_no_file() {
+        let _lock = match crate::test_env::ENV_LOCK.lock() {
+            Ok(g) => g,
+            Err(p) => p.into_inner(),
+        };
         // CWD mutation with catch_unwind to guarantee cleanup even on panic.
         // Isolate from real user config dir to avoid picking up invalid files.
         let dir = tempfile::tempdir().unwrap();
         let original = std::env::current_dir().unwrap();
-        let orig_xdg = std::env::var("XDG_CONFIG_HOME").ok();
         let xdg_dir = dir.path().join("xdg");
         std::fs::create_dir_all(&xdg_dir).unwrap();
-        std::env::set_var("XDG_CONFIG_HOME", &xdg_dir);
+        let _env = crate::test_env::EnvVarGuard::set_all(&[(
+            "XDG_CONFIG_HOME",
+            xdg_dir.to_str().unwrap(),
+        )]);
 
         let result = std::panic::catch_unwind(|| {
             std::env::set_current_dir(dir.path()).unwrap();
@@ -1455,10 +1461,6 @@ mod tests {
         });
 
         std::env::set_current_dir(original).unwrap();
-        match orig_xdg {
-            Some(val) => std::env::set_var("XDG_CONFIG_HOME", val),
-            None => std::env::remove_var("XDG_CONFIG_HOME"),
-        }
         result.unwrap();
     }
 }
