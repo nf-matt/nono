@@ -881,6 +881,33 @@ impl CapabilitySet {
         self.deduplicate();
     }
 
+    /// Widen `/proc/<pid>` READ-only Landlock rules to `/proc` so that
+    /// grandchild processes can access their own procfs entries.
+    ///
+    /// This is needed because Landlock rules are fixed at sandbox setup time with
+    /// the direct child's PID. When a grandchild (e.g. nono→sh→bun) forks, it
+    /// gets a new PID and its `/proc/self` resolves to a different inode than the
+    /// direct child's `/proc/<sh_pid>`. By widening to `/proc`, we allow any
+    /// descendant to read its own procfs entries.
+    ///
+    /// Only applies to READ capabilities at the `/proc/self` level (not
+    /// subdirectories like `/proc/self/fd` which may have write access).
+    pub fn widen_procfs_self_to_proc(&mut self) {
+        for cap in &mut self.fs {
+            if cap.access == AccessMode::Read {
+                let is_proc_self_dir = cap
+                    .original
+                    .to_str()
+                    .map(|s| s == "/proc/self" || s == "/proc/self/")
+                    .unwrap_or(false);
+                if is_proc_self_dir {
+                    cap.resolved = std::path::PathBuf::from("/proc");
+                }
+            }
+        }
+        self.deduplicate();
+    }
+
     /// Check if network access is blocked
     ///
     /// Returns `true` for both `Blocked` and `ProxyOnly` modes, since both

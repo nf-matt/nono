@@ -640,6 +640,8 @@ pub fn execute_supervised(
             #[cfg(target_os = "linux")]
             child_caps.remap_procfs_self_references(std::process::id(), None);
             #[cfg(target_os = "linux")]
+            child_caps.widen_procfs_self_to_proc();
+            #[cfg(target_os = "linux")]
             let effective_caps: &CapabilitySet = &child_caps;
 
             #[cfg(target_os = "macos")]
