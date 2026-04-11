@@ -5,7 +5,7 @@ use crate::config;
 use crate::credential_runtime::load_env_credentials;
 use crate::profile;
 use crate::profile::WorkdirAccess;
-use crate::profile_runtime::prepare_profile;
+use crate::profile_runtime::{prepare_profile, prepare_profile_for_preflight};
 use crate::{output, policy, protected_paths, sandbox_state};
 use crate::{DETACHED_CWD_PROMPT_RESPONSE_ENV, DETACHED_LAUNCH_ENV};
 use colored::Colorize;
@@ -167,11 +167,11 @@ pub(crate) fn resolve_detached_cwd_prompt_response(
     }
 
     let workdir = resolved_workdir(args);
-    let loaded_profile = if let Some(ref profile_name) = args.profile {
-        Some(profile::load_profile(profile_name)?)
-    } else {
-        None
-    };
+    let crate::profile_runtime::PreparedProfile {
+        loaded_profile,
+        workdir_access: profile_workdir_access,
+        ..
+    } = prepare_profile_for_preflight(args, &workdir)?;
 
     let (caps, _) = if let Some(ref profile) = loaded_profile {
         CapabilitySet::from_profile(profile, &workdir, args)?
@@ -179,13 +179,8 @@ pub(crate) fn resolve_detached_cwd_prompt_response(
         CapabilitySet::from_args(args)?
     };
 
-    let Some(request) = pending_cwd_access_request(
-        &caps,
-        &workdir,
-        loaded_profile
-            .as_ref()
-            .map(|profile| &profile.workdir.access),
-    )?
+    let Some(request) =
+        pending_cwd_access_request(&caps, &workdir, profile_workdir_access.as_ref())?
     else {
         return Ok(None);
     };

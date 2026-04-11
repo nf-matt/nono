@@ -25,6 +25,12 @@ pub(crate) struct PreparedProfile {
     pub(crate) override_deny_paths: Vec<PathBuf>,
 }
 
+#[derive(Clone, Copy)]
+struct PrepareProfileOptions {
+    install_hooks: bool,
+    hook_output_silent: bool,
+}
+
 fn install_profile_hooks(profile: &profile::Profile, silent: bool) {
     if profile.hooks.hooks.is_empty() {
         return;
@@ -107,14 +113,16 @@ fn collect_override_deny_paths(
     paths
 }
 
-pub(crate) fn prepare_profile(
+fn prepare_profile_with_options(
     args: &SandboxArgs,
-    silent: bool,
     workdir: &Path,
+    options: PrepareProfileOptions,
 ) -> crate::Result<PreparedProfile> {
     let loaded_profile = if let Some(ref profile_name) = args.profile {
         let profile = profile::load_profile(profile_name)?;
-        install_profile_hooks(&profile, silent);
+        if options.install_hooks {
+            install_profile_hooks(&profile, options.hook_output_silent);
+        }
         Some(profile)
     } else {
         None
@@ -195,4 +203,139 @@ pub(crate) fn prepare_profile(
         ),
         loaded_profile,
     })
+}
+
+pub(crate) fn prepare_profile(
+    args: &SandboxArgs,
+    silent: bool,
+    workdir: &Path,
+) -> crate::Result<PreparedProfile> {
+    prepare_profile_with_options(
+        args,
+        workdir,
+        PrepareProfileOptions {
+            install_hooks: true,
+            hook_output_silent: silent,
+        },
+    )
+}
+
+pub(crate) fn prepare_profile_for_preflight(
+    args: &SandboxArgs,
+    workdir: &Path,
+) -> crate::Result<PreparedProfile> {
+    prepare_profile_with_options(
+        args,
+        workdir,
+        PrepareProfileOptions {
+            install_hooks: false,
+            hook_output_silent: true,
+        },
+    )
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::fs;
+    use tempfile::tempdir;
+
+    #[test]
+    fn prepare_profile_for_preflight_matches_runtime_resolution() {
+        let workdir = match tempdir() {
+            Ok(dir) => dir,
+            Err(err) => panic!("failed to create tempdir: {err}"),
+        };
+        let cli_override = workdir.path().join("cli-override");
+        if let Err(err) = fs::create_dir_all(&cli_override) {
+            panic!("failed to create CLI override path: {err}");
+        }
+
+        let profile_path = workdir.path().join("preflight-profile.json");
+        if let Err(err) = fs::write(
+            &profile_path,
+            r#"{
+                "extends": "default",
+                "meta": { "name": "preflight-profile" },
+                "workdir": { "access": "write" },
+                "rollback": { "exclude_patterns": ["target"] },
+                "network": {
+                    "allow_domain": ["example.com"],
+                    "upstream_bypass": ["localhost"],
+                    "listen_port": [8080]
+                },
+                "policy": {
+                    "override_deny": ["$WORKDIR/.git"]
+                }
+            }"#,
+        ) {
+            panic!("failed to write profile: {err}");
+        }
+
+        let args = SandboxArgs {
+            profile: Some(profile_path.to_string_lossy().into_owned()),
+            override_deny: vec![cli_override],
+            ..SandboxArgs::default()
+        };
+
+        let runtime = match prepare_profile(&args, true, workdir.path()) {
+            Ok(profile) => profile,
+            Err(err) => panic!("runtime prepare_profile failed: {err}"),
+        };
+        let preflight = match prepare_profile_for_preflight(&args, workdir.path()) {
+            Ok(profile) => profile,
+            Err(err) => panic!("preflight prepare_profile failed: {err}"),
+        };
+
+        assert_eq!(runtime.capability_elevation, preflight.capability_elevation);
+        #[cfg(target_os = "linux")]
+        assert_eq!(runtime.wsl2_proxy_policy, preflight.wsl2_proxy_policy);
+        assert_eq!(runtime.workdir_access, preflight.workdir_access);
+        assert_eq!(
+            runtime.rollback_exclude_patterns,
+            preflight.rollback_exclude_patterns
+        );
+        assert_eq!(
+            runtime.rollback_exclude_globs,
+            preflight.rollback_exclude_globs
+        );
+        assert_eq!(runtime.network_profile, preflight.network_profile);
+        assert_eq!(runtime.allow_domain, preflight.allow_domain);
+        assert_eq!(runtime.credentials, preflight.credentials);
+        assert_eq!(runtime.custom_credentials, preflight.custom_credentials);
+        assert_eq!(runtime.upstream_proxy, preflight.upstream_proxy);
+        assert_eq!(runtime.upstream_bypass, preflight.upstream_bypass);
+        assert_eq!(runtime.listen_ports, preflight.listen_ports);
+        assert_eq!(runtime.open_url_origins, preflight.open_url_origins);
+        assert_eq!(
+            runtime.open_url_allow_localhost,
+            preflight.open_url_allow_localhost
+        );
+        assert_eq!(
+            runtime.allow_launch_services,
+            preflight.allow_launch_services
+        );
+        assert_eq!(runtime.allow_gpu, preflight.allow_gpu);
+        assert_eq!(runtime.override_deny_paths, preflight.override_deny_paths);
+        assert_eq!(
+            runtime.loaded_profile.as_ref().map(|profile| {
+                (
+                    profile.meta.name.clone(),
+                    profile.extends.clone(),
+                    profile.security.groups.clone(),
+                    profile.workdir.access.clone(),
+                    profile.filesystem.allow.clone(),
+                )
+            }),
+            preflight.loaded_profile.as_ref().map(|profile| {
+                (
+                    profile.meta.name.clone(),
+                    profile.extends.clone(),
+                    profile.security.groups.clone(),
+                    profile.workdir.access.clone(),
+                    profile.filesystem.allow.clone(),
+                )
+            })
+        );
+    }
 }
