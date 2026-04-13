@@ -333,6 +333,15 @@ impl PtyProxy {
         detached_terminal
     }
 
+    /// Shut down the attach listener so no new connections can be accepted.
+    ///
+    /// Removes the socket file. This prevents the kernel from accepting new
+    /// connections after the supervisor loop has exited but before the
+    /// `PtyProxy` is dropped — the window that causes "Broken pipe" errors on attach.
+    pub fn shutdown_attach_listener(&mut self) {
+        let _ = std::fs::remove_file(&self.attach_path);
+    }
+
     /// Accept an attach connection.
     ///
     /// Returns true if a client was attached.
@@ -1327,7 +1336,10 @@ fn decode_resize_message(buf: &[u8; RESIZE_MESSAGE_LEN]) -> Option<Winsize> {
 fn send_attach_handshake(stream: &mut UnixStream) -> Result<()> {
     let handshake = encode_attach_request_frame(get_terminal_winsize());
     stream.write_all(&handshake).map_err(|e| {
-        NonoError::ConfigParse(format!("Failed to send attach request/handshake: {}", e))
+        if is_socket_disconnect(&e) {
+            return NonoError::SessionGone;
+        }
+        NonoError::ConfigParse(format!("Failed to send attach handshake: {}", e))
     })
 }
 
@@ -1482,13 +1494,18 @@ pub fn connect_to_session(session_id: &str) -> Result<UnixStream> {
     let sock_path = crate::session::session_socket_path(session_id)?;
 
     if !sock_path.exists() {
-        return Err(NonoError::ConfigParse(format!(
-            "Session {} has no attach socket (not a PTY session or already exited)",
-            session_id
-        )));
+        return Err(NonoError::SessionGone);
     }
 
     let mut stream = UnixStream::connect(&sock_path).map_err(|e| {
+        if is_socket_disconnect(&e)
+            || matches!(
+                e.kind(),
+                std::io::ErrorKind::ConnectionRefused | std::io::ErrorKind::NotFound
+            )
+        {
+            return NonoError::SessionGone;
+        }
         NonoError::ConfigParse(format!(
             "Failed to connect to session {} attach socket: {}",
             session_id, e
@@ -1503,21 +1520,29 @@ pub fn request_session_detach(session_id: &str) -> Result<()> {
     let sock_path = crate::session::session_socket_path(session_id)?;
 
     if !sock_path.exists() {
-        return Err(NonoError::ConfigParse(format!(
-            "Session {} has no attach socket (not a PTY session or already exited)",
-            session_id
-        )));
+        return Err(NonoError::SessionGone);
     }
 
     let mut stream = UnixStream::connect(&sock_path).map_err(|e| {
+        if is_socket_disconnect(&e)
+            || matches!(
+                e.kind(),
+                std::io::ErrorKind::ConnectionRefused | std::io::ErrorKind::NotFound
+            )
+        {
+            return NonoError::SessionGone;
+        }
         NonoError::ConfigParse(format!(
             "Failed to connect to session {} attach socket: {}",
             session_id, e
         ))
     })?;
-    stream
-        .write_all(&[ATTACH_REQUEST_DETACH])
-        .map_err(|e| NonoError::ConfigParse(format!("Failed to send detach request: {}", e)))?;
+    stream.write_all(&[ATTACH_REQUEST_DETACH]).map_err(|e| {
+        if is_socket_disconnect(&e) {
+            return NonoError::SessionGone;
+        }
+        NonoError::ConfigParse(format!("Failed to send detach request: {}", e))
+    })?;
     wait_for_detach_ready(stream.as_raw_fd(), 1000)
 }
 
@@ -1545,9 +1570,7 @@ pub fn wait_for_attach_ready(sock_fd: RawFd, timeout_ms: i32) -> Result<()> {
     let n = unsafe { libc::read(sock_fd, ack.as_mut_ptr().cast::<libc::c_void>(), ack.len()) };
     if n != 1 {
         if pfd.revents & (libc::POLLHUP | libc::POLLERR) != 0 {
-            return Err(NonoError::ConfigParse(
-                "Session attach socket closed before attach completed".to_string(),
-            ));
+            return Err(NonoError::SessionGone);
         }
         return Err(NonoError::ConfigParse(
             "Failed to confirm session attach readiness".to_string(),
@@ -1769,8 +1792,21 @@ where
 }
 
 /// Connect to a running session's attach socket and proxy I/O.
+///
+/// Retries once on transient socket disconnects (e.g. the supervisor was
+/// mid-shutdown when we connected) to give a clean "session exited" message
+/// instead of a raw "Broken pipe" error.
 pub fn attach_to_session(session_id: &str) -> Result<()> {
-    let stream = connect_to_session(session_id)?;
+    let stream = match connect_to_session(session_id) {
+        Err(NonoError::SessionGone) => {
+            // The supervisor may have been mid-shutdown. Wait briefly and
+            // retry once so we can distinguish "exited just now" from a
+            // persistent problem.
+            std::thread::sleep(Duration::from_millis(150));
+            connect_to_session(session_id)?
+        }
+        other => other?,
+    };
     wait_for_attach_ready(stream.as_raw_fd(), 1000)?;
     attach_to_stream(stream)
 }

@@ -1129,6 +1129,16 @@ pub fn execute_supervised(
                     (status, Vec::new())
                 };
 
+            // Close the attach listener immediately so no new attach
+            // connections can sneak in during teardown.  Without this,
+            // the kernel keeps accepting connections into the listen
+            // backlog even though nobody is calling accept(), and the
+            // attaching client gets EPIPE ("Broken pipe") when it
+            // tries to send the handshake.
+            if let Some(ref mut p) = pty_proxy {
+                p.shutdown_attach_listener();
+            }
+
             let exit_code = match status {
                 WaitStatus::Exited(_, code) => {
                     debug!("Supervised child exited with code {}", code);

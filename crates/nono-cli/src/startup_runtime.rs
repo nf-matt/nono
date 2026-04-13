@@ -53,7 +53,7 @@ pub(crate) fn run_detached_launch(args: RunArgs, silent: bool) -> Result<()> {
 
     let session_path = session::session_file_path(&session_id)?;
     let attach_path = session::session_socket_path(&session_id)?;
-    let deadline = std::time::Instant::now() + std::time::Duration::from_secs(2);
+    let deadline = std::time::Instant::now() + std::time::Duration::from_secs(30);
     while std::time::Instant::now() < deadline {
         if session_path.exists() && attach_path.exists() {
             cleanup_startup_log(&startup_log_path);

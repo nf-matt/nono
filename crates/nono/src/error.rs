@@ -143,6 +143,9 @@ pub enum NonoError {
     #[error("Session already has an active attached client")]
     AttachBusy,
 
+    #[error("Session exited before attach could complete")]
+    SessionGone,
+
     // Trust/attestation errors
     #[error("Trust verification failed for {path}: {reason}")]
     TrustVerification { path: String, reason: String },

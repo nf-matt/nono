@@ -244,6 +244,13 @@ pub fn run_attach(args: &AttachArgs) -> Result<()> {
             );
             Ok(())
         }
+        Err(NonoError::SessionGone) => {
+            eprintln!(
+                "[nono] Session {} exited before attach could complete.",
+                record.session_id
+            );
+            Ok(())
+        }
         other => other,
     }
 }
