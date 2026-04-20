@@ -1239,6 +1239,19 @@ pub struct Profile {
     /// Supports variable expansion (e.g. `$NONO_PACKAGES`).
     #[serde(default)]
     pub command_args: Vec<String>,
+    /// Raw macOS-only Seatbelt S-expression rules applied verbatim to the sandbox policy.
+    ///
+    /// Expert escape hatch for capability gaps. Each entry must be a valid Seatbelt
+    /// S-expression such as `(allow iokit-open)`. Rules are validated at load time
+    /// and rejected if malformed. Ignored on Linux. Prominently surfaced in
+    /// `nono policy profile` output when present so it is obvious a profile uses
+    /// raw platform rules.
+    ///
+    /// This field is intentionally named `unsafe_*` — it bypasses nono's capability
+    /// model. If a rule pattern becomes common, prefer promoting it to a typed
+    /// first-class capability.
+    #[serde(default)]
+    pub unsafe_macos_seatbelt_rules: Vec<String>,
 }
 
 #[derive(Deserialize)]
@@ -1284,6 +1297,8 @@ struct ProfileDeserialize {
     packs: Vec<String>,
     #[serde(default)]
     command_args: Vec<String>,
+    #[serde(default)]
+    unsafe_macos_seatbelt_rules: Vec<String>,
 }
 
 impl From<ProfileDeserialize> for Profile {
@@ -1308,6 +1323,7 @@ impl From<ProfileDeserialize> for Profile {
             skipdirs: raw.skipdirs,
             packs: raw.packs,
             command_args: raw.command_args,
+            unsafe_macos_seatbelt_rules: raw.unsafe_macos_seatbelt_rules,
         }
     }
 }
@@ -1856,6 +1872,10 @@ fn merge_profiles(base: Profile, child: Profile) -> Profile {
         skipdirs: dedup_append(&base.skipdirs, &child.skipdirs),
         packs: dedup_append(&base.packs, &child.packs),
         command_args: dedup_append(&base.command_args, &child.command_args),
+        unsafe_macos_seatbelt_rules: dedup_append(
+            &base.unsafe_macos_seatbelt_rules,
+            &child.unsafe_macos_seatbelt_rules,
+        ),
     }
 }
 
