@@ -574,9 +574,6 @@
         }
       }
     },
-        }
-      }
-    },
     "SecretsConfig": {
       "type": "object",
       "description": "Maps keystore account names (or op://, apple-password://, env:// URIs) to environment variable names. Secrets are loaded from the system keystore under the service name \"nono\".",

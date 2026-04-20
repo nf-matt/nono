@@ -3149,8 +3149,12 @@ mod tests {
             path_pattern: None,
             path_replacement: None,
             query_param_name: None,
+            proxy: None,
             env_var: None,
             endpoint_rules: vec![],
+            tls_ca: None,
+            tls_client_cert: None,
+            tls_client_key: None,
         }
     }
 

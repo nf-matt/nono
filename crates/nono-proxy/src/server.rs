@@ -850,6 +850,7 @@ mod tests {
                 tls_ca: None,
                 tls_client_cert: None,
                 tls_client_key: None,
+                oauth2: None,
             }],
             ..Default::default()
         };
@@ -883,6 +884,7 @@ mod tests {
                 tls_ca: None,
                 tls_client_cert: None,
                 tls_client_key: None,
+                oauth2: None,
             }],
             ..Default::default()
         };
@@ -933,6 +935,7 @@ mod tests {
                 tls_ca: None,
                 tls_client_cert: None,
                 tls_client_key: None,
+                oauth2: None,
             }],
             ..Default::default()
         };
@@ -970,6 +973,7 @@ mod tests {
                 tls_ca: None,
                 tls_client_cert: None,
                 tls_client_key: None,
+                oauth2: None,
             }],
             ..Default::default()
         };

@@ -324,7 +324,41 @@ const KEYRING_SERVICE: &str = nono::keystore::DEFAULT_SERVICE;
 #[allow(clippy::unwrap_used)]
 mod tests {
     use super::*;
-    use std::sync::Arc;
+    use std::sync::{Arc, Mutex};
+
+    static ENV_LOCK: Mutex<()> = Mutex::new(());
+
+    struct EnvVarGuard {
+        original: Vec<(&'static str, Option<String>)>,
+    }
+
+    #[allow(clippy::disallowed_methods)]
+    impl EnvVarGuard {
+        fn set_all(vars: &[(&'static str, &str)]) -> Self {
+            let original = vars
+                .iter()
+                .map(|(key, _)| (*key, std::env::var(key).ok()))
+                .collect::<Vec<_>>();
+
+            for (key, value) in vars {
+                std::env::set_var(key, value);
+            }
+
+            Self { original }
+        }
+    }
+
+    #[allow(clippy::disallowed_methods)]
+    impl Drop for EnvVarGuard {
+        fn drop(&mut self) {
+            for (key, value) in self.original.iter().rev() {
+                match value {
+                    Some(value) => std::env::set_var(key, value),
+                    None => std::env::remove_var(key),
+                }
+            }
+        }
+    }
 
     /// Build a TLS connector for tests (never used for real connections).
     fn test_tls_connector() -> TlsConnector {
@@ -482,6 +516,11 @@ mod tests {
     async fn test_load_oauth2_unreachable_endpoint_skips_route() {
         use crate::config::OAuth2Config;
 
+        let _lock = ENV_LOCK.lock().unwrap();
+        let _env = EnvVarGuard::set_all(&[
+            ("TEST_OAUTH2_CLIENT_ID", "test-client"),
+            ("TEST_OAUTH2_CLIENT_SECRET", "test-secret"),
+        ]);
         let tls = test_tls_connector();
         let routes = vec![RouteConfig {
             prefix: "my-api".to_string(),
@@ -493,8 +532,12 @@ mod tests {
             path_pattern: None,
             path_replacement: None,
             query_param_name: None,
+            proxy: None,
             env_var: Some("MY_API_KEY".to_string()),
             endpoint_rules: vec![],
+            tls_ca: None,
+            tls_client_cert: None,
+            tls_client_key: None,
             oauth2: Some(OAuth2Config {
                 // Non-routable address: exchange will fail at TCP connect
                 token_url: "https://127.0.0.1:1/oauth/token".to_string(),
@@ -505,15 +548,7 @@ mod tests {
             }),
         }];
 
-        // Set env vars so credential loading succeeds (exchange will fail)
-        std::env::set_var("TEST_OAUTH2_CLIENT_ID", "test-client");
-        std::env::set_var("TEST_OAUTH2_CLIENT_SECRET", "test-secret");
-
         let store = CredentialStore::load(&routes, &tls);
-
-        // Clean up env vars
-        std::env::remove_var("TEST_OAUTH2_CLIENT_ID");
-        std::env::remove_var("TEST_OAUTH2_CLIENT_SECRET");
 
         // load() should succeed (route skipped, not hard error)
         assert!(

@@ -271,7 +271,13 @@ pub async fn handle_reverse_proxy(
     tls_stream.flush().await?;
 
     let status_code = stream_response(&mut tls_stream, stream).await?;
-    audit::log_reverse_proxy(ctx.audit_log, &service, &method, &upstream_path, status_code);
+    audit::log_reverse_proxy(
+        ctx.audit_log,
+        &service,
+        &method,
+        &upstream_path,
+        status_code,
+    );
     Ok(())
 }
 
@@ -380,7 +386,10 @@ async fn handle_oauth2_credential(
     ));
 
     // Inject OAuth2 access token as Authorization: Bearer
-    request.push_str(&format!("Authorization: Bearer {}\r\n", access_token.as_str()));
+    request.push_str(&format!(
+        "Authorization: Bearer {}\r\n",
+        access_token.as_str()
+    ));
 
     // Forward filtered headers (auth headers already stripped by filter_headers)
     for (name, value) in &filtered_headers {
