@@ -165,6 +165,33 @@ Transparent capability expansion on macOS would require intercepting `open()` ca
 
 macOS supervised mode provides rollback snapshots and diagnostic output, but does not attempt capability expansion. Seatbelt (`sandbox_init()`) provides the kernel enforcement layer on macOS, with the same irreversibility guarantees as Landlock on Linux.
 
+### macOS Claude Code keychain scope
+
+The built-in `claude-code` profile on macOS grants read-write access to the **user** keychain root:
+
+- `~/Library/Keychains`
+
+It also keeps explicit grants for:
+
+- `~/Library/Keychains/login.keychain-db`
+- `~/Library/Keychains/metadata.keychain-db`
+
+This is broader than the older "two DB files only" model. In practice, Claude Code's login and token persistence flow touches more of the user keychain runtime surface than those two files alone, so the narrower grant was not sufficient for reliable auth.
+
+This does **not** grant the system keychain at `/Library/Keychains`.
+
+Security implication:
+
+- a process running under the macOS `claude-code` profile can interact with the user's keychain subtree, not just Claude-specific entries
+
+This was chosen as a compatibility tradeoff for the built-in Claude profile. Users who need a tighter boundary should use a custom profile instead of relying on the built-in `claude-code` profile.
+
+For users who want the built-in Claude profile shape without macOS keychain access, nono also provides:
+
+- `claude-no-kc`
+
+That profile keeps the normal Claude filesystem/runtime allowances but does not relax the macOS keychain deny for `~/Library/Keychains`.
+
 ## The fd Injection Model
 
 When the supervisor approves a request, it does not tell the child "go ahead and open it yourself." It opens the file and hands the child a file descriptor. This distinction is fundamental to the security model.
