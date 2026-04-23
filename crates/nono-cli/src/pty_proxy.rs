@@ -644,7 +644,11 @@ impl PtyProxy {
         }
 
         self.saved_termios = set_terminal_raw();
-        enter_attach_screen();
+        // The replay bytes from `attach_replay_bytes` now include the
+        // alt-screen entry escape themselves when the child is in alt-screen,
+        // so no separate `enter_attach_screen()` call is needed. Staying in
+        // normal-screen mode for non-TUI sessions preserves the outer
+        // terminal's scrollback and mouse-wheel handling.
         let replay = self.attach_replay_bytes();
         if let Some(client) = self.client.as_ref() {
             let _ = write_all_fd(client.write_fd(), &replay);
@@ -1073,23 +1077,12 @@ fn control_key_candidates(expected_key: u8) -> Option<[u32; 2]> {
     }
 }
 
-fn select_attach_replay_bytes(
-    alternate_screen_active: bool,
+fn compose_replay_body(
     raw_scrollback: Vec<u8>,
     rendered_snapshot: Vec<u8>,
     rendered_plaintext: String,
 ) -> Vec<u8> {
-    if alternate_screen_active {
-        if raw_scrollback.is_empty() {
-            rendered_snapshot
-        } else if rendered_plaintext.trim().is_empty() {
-            raw_scrollback
-        } else {
-            let mut replay = raw_scrollback;
-            replay.extend_from_slice(&rendered_snapshot);
-            replay
-        }
-    } else if raw_scrollback.is_empty() {
+    if raw_scrollback.is_empty() {
         rendered_snapshot
     } else if rendered_snapshot.is_empty() || rendered_plaintext.trim().is_empty() {
         raw_scrollback
@@ -1100,6 +1093,29 @@ fn select_attach_replay_bytes(
         let mut replay = raw_scrollback;
         replay.extend_from_slice(&rendered_snapshot);
         replay
+    }
+}
+
+fn select_attach_replay_bytes(
+    alternate_screen_active: bool,
+    raw_scrollback: Vec<u8>,
+    rendered_snapshot: Vec<u8>,
+    rendered_plaintext: String,
+) -> Vec<u8> {
+    let body = compose_replay_body(raw_scrollback, rendered_snapshot, rendered_plaintext);
+    if alternate_screen_active {
+        // Only force the outer terminal into the alternate screen when the
+        // child is currently using it (vim, htop, etc.). For normal-mode
+        // sessions (shells, Claude Code) we stay in normal screen so the
+        // user's terminal-emulator scrollback and mouse-wheel behavior are
+        // preserved.
+        let mut out =
+            Vec::with_capacity(ATTACH_SCREEN_ENTER_ESCAPE.len().saturating_add(body.len()));
+        out.extend_from_slice(ATTACH_SCREEN_ENTER_ESCAPE);
+        out.extend_from_slice(&body);
+        out
+    } else {
+        body
     }
 }
 
@@ -1376,16 +1392,6 @@ fn recv_attach_resize_socket(stream: &UnixStream) -> Result<Option<UnixDatagram>
         ));
     }
     Ok(Some(socket))
-}
-
-fn enter_attach_screen() {
-    unsafe {
-        libc::write(
-            libc::STDOUT_FILENO,
-            ATTACH_SCREEN_ENTER_ESCAPE.as_ptr().cast(),
-            ATTACH_SCREEN_ENTER_ESCAPE.len(),
-        );
-    }
 }
 
 fn leave_attach_screen() {
@@ -1761,9 +1767,12 @@ where
 {
     let sock_fd = stream.as_raw_fd();
 
-    // Put our terminal in raw mode
+    // Put our terminal in raw mode. We deliberately do NOT enter the alternate
+    // screen here: the supervisor prepends the alt-screen entry escape to the
+    // replay bytes when the child is actually using alt-screen (vim, htop,
+    // etc.). For normal-mode sessions we leave the outer terminal in the
+    // normal screen so its native scrollback and mouse-wheel behavior work.
     let saved_termios = set_terminal_raw();
-    enter_attach_screen();
 
     // Render any queued replay bytes before the child is resumed. This keeps
     // the restored screen and cursor state coherent before new live output
@@ -2010,7 +2019,7 @@ mod tests {
         decode_attach_handshake, encode_attach_request_frame, read_fd_once,
         select_attach_replay_bytes, terminal_restore_escape, write_all_fd, AttachedClient,
         PtyProxy, ReadFdOutcome, ScreenState, ATTACH_HANDSHAKE_MAGIC, ATTACH_REQUEST_ATTACH,
-        DEFAULT_DETACH_SEQUENCE,
+        ATTACH_SCREEN_ENTER_ESCAPE, DEFAULT_DETACH_SEQUENCE,
     };
     use nix::libc;
     use std::collections::VecDeque;
@@ -2092,15 +2101,22 @@ mod tests {
         assert_eq!(decoded.ws_col, winsize.ws_col);
     }
 
+    fn with_alt_prefix(body: &[u8]) -> Vec<u8> {
+        let mut out = Vec::with_capacity(ATTACH_SCREEN_ENTER_ESCAPE.len() + body.len());
+        out.extend_from_slice(ATTACH_SCREEN_ENTER_ESCAPE);
+        out.extend_from_slice(body);
+        out
+    }
+
     #[test]
-    fn attach_replay_uses_rendered_snapshot_for_alternate_screen() {
+    fn attach_replay_prepends_alt_screen_escape_for_alternate_screen() {
         let replay = select_attach_replay_bytes(
             true,
             b"raw".to_vec(),
             b"rendered".to_vec(),
             "visible text".to_string(),
         );
-        assert_eq!(replay, b"rawrendered");
+        assert_eq!(replay, with_alt_prefix(b"rawrendered"));
     }
 
     #[test]
@@ -2112,6 +2128,7 @@ mod tests {
             "visible text".to_string(),
         );
         assert_eq!(replay, b"rawrendered");
+        assert!(!replay.starts_with(ATTACH_SCREEN_ENTER_ESCAPE));
     }
 
     #[test]
@@ -2123,6 +2140,7 @@ mod tests {
             "visible text".to_string(),
         );
         assert_eq!(replay, b"rendered");
+        assert!(!replay.starts_with(ATTACH_SCREEN_ENTER_ESCAPE));
     }
 
     #[test]
@@ -2134,12 +2152,13 @@ mod tests {
             "   ".to_string(),
         );
         assert_eq!(replay, b"raw");
+        assert!(!replay.starts_with(ATTACH_SCREEN_ENTER_ESCAPE));
     }
 
     #[test]
     fn attach_replay_falls_back_to_raw_if_alternate_snapshot_is_empty() {
         let replay = select_attach_replay_bytes(true, b"raw".to_vec(), Vec::new(), "".to_string());
-        assert_eq!(replay, b"raw");
+        assert_eq!(replay, with_alt_prefix(b"raw"));
     }
 
     #[test]
@@ -2150,7 +2169,7 @@ mod tests {
             b"rendered".to_vec(),
             "   ".to_string(),
         );
-        assert_eq!(replay, b"raw");
+        assert_eq!(replay, with_alt_prefix(b"raw"));
     }
 
     #[test]
