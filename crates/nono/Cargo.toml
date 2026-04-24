@@ -13,9 +13,9 @@ keywords = ["sandbox", "security", "capability", "landlock", "seatbelt"]
 categories = ["os", "api-bindings"]
 
 [features]
-default = []
+default = ["system-keyring"]
 # Enables OS system keyring access (macOS Keychain / Linux Secret Service).
-# Consumers (nono-cli, nono-proxy) opt in via their own system-keyring feature.
+# Headless/container consumers opt out with default-features = false.
 system-keyring = ["dep:keyring"]
 
 [dependencies]

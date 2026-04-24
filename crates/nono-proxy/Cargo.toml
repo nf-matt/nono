@@ -12,13 +12,13 @@ keywords = ["sandbox", "security", "proxy", "network"]
 categories = ["network-programming", "web-programming"]
 
 [features]
-default = []
+default = ["system-keyring"]
 # Enables OS system keyring access (macOS Keychain / Linux Secret Service).
-# nono-cli controls this for the full binary build.
+# Headless/container consumers opt out with default-features = false.
 system-keyring = ["nono/system-keyring"]
 
 [dependencies]
-nono = { version = "0.40.1", path = "../nono" }
+nono = { version = "0.40.1", path = "../nono", default-features = false }
 tokio.workspace = true
 hyper.workspace = true
 hyper-util.workspace = true
