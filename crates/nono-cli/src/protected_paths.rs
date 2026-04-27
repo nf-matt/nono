@@ -3,7 +3,7 @@
 //! These checks enforce a hard fail if initial sandbox capabilities overlap
 //! with internal CLI state roots (currently `~/.nono`).
 
-use nono::{CapabilitySet, NonoError, Result};
+use nono::{try_canonicalize, CapabilitySet, NonoError, Result};
 use std::path::{Path, PathBuf};
 
 /// Resolved internal state roots that must not be accessible by the sandboxed child.
@@ -20,7 +20,7 @@ impl ProtectedRoots {
     /// Today this protects the full `~/.nono` subtree.
     pub fn from_defaults() -> Result<Self> {
         let home = dirs::home_dir().ok_or(NonoError::HomeNotFound)?;
-        let state_root = resolve_path(&home.join(".nono"));
+        let state_root = try_canonicalize(&home.join(".nono"));
         Ok(Self {
             roots: vec![state_root],
         })
@@ -74,8 +74,8 @@ pub fn validate_requested_path_against_protected_roots(
     protected_roots: &[PathBuf],
     allow_parent_of_protected: bool,
 ) -> Result<()> {
-    let requested_path = resolve_path(path);
-    let resolved_roots: Vec<PathBuf> = protected_roots.iter().map(|p| resolve_path(p)).collect();
+    let requested_path = try_canonicalize(path);
+    let resolved_roots: Vec<PathBuf> = protected_roots.iter().map(|p| try_canonicalize(p)).collect();
 
     for protected_root in &resolved_roots {
         let inside_protected = requested_path.starts_with(protected_root);
@@ -124,8 +124,8 @@ pub fn overlapping_protected_root(
     is_file: bool,
     protected_roots: &[PathBuf],
 ) -> Option<PathBuf> {
-    let requested_path = resolve_path(path);
-    let resolved_roots: Vec<PathBuf> = protected_roots.iter().map(|p| resolve_path(p)).collect();
+    let requested_path = try_canonicalize(path);
+    let resolved_roots: Vec<PathBuf> = protected_roots.iter().map(|p| try_canonicalize(p)).collect();
 
     for protected_root in &resolved_roots {
         let inside_protected = requested_path.starts_with(protected_root);
@@ -159,7 +159,7 @@ pub(crate) fn emit_protected_root_deny_rules(
     }
 
     for root in protected_roots {
-        let resolved = resolve_path(root);
+        let resolved = try_canonicalize(root);
         emit_deny_rules_for_path(&resolved, caps)?;
 
         // Also emit for the canonical path if it differs (important on macOS
@@ -190,37 +190,6 @@ fn emit_deny_rules_for_path(_path: &Path, _caps: &mut CapabilitySet) -> Result<(
     Ok(())
 }
 
-/// Resolve path by canonicalizing the full path, or canonicalizing the longest
-/// existing ancestor and appending remaining components.
-fn resolve_path(path: &Path) -> PathBuf {
-    if let Ok(canonical) = path.canonicalize() {
-        return canonical;
-    }
-
-    let mut remaining = Vec::new();
-    let mut current = path.to_path_buf();
-    loop {
-        if let Ok(canonical) = current.canonicalize() {
-            let mut result = canonical;
-            for component in remaining.iter().rev() {
-                result = result.join(component);
-            }
-            return result;
-        }
-
-        match current.file_name() {
-            Some(name) => {
-                remaining.push(name.to_os_string());
-                if !current.pop() {
-                    break;
-                }
-            }
-            None => break,
-        }
-    }
-
-    path.to_path_buf()
-}
 
 #[cfg(test)]
 mod tests {
