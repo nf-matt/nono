@@ -75,12 +75,8 @@ pub fn validate_requested_path_against_protected_roots(
     allow_parent_of_protected: bool,
 ) -> Result<()> {
     let requested_path = try_canonicalize(path);
-    let resolved_roots: Vec<PathBuf> = protected_roots
-        .iter()
-        .map(|p| try_canonicalize(p))
-        .collect();
 
-    for protected_root in &resolved_roots {
+    for protected_root in protected_roots {
         let inside_protected = requested_path.starts_with(protected_root);
         let parent_of_protected = !is_file && protected_root.starts_with(&requested_path);
 
@@ -128,12 +124,8 @@ pub fn overlapping_protected_root(
     protected_roots: &[PathBuf],
 ) -> Option<PathBuf> {
     let requested_path = try_canonicalize(path);
-    let resolved_roots: Vec<PathBuf> = protected_roots
-        .iter()
-        .map(|p| try_canonicalize(p))
-        .collect();
 
-    for protected_root in &resolved_roots {
+    for protected_root in protected_roots {
         let inside_protected = requested_path.starts_with(protected_root);
         if inside_protected {
             return Some(protected_root.clone());
