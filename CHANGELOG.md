@@ -1,5 +1,11 @@
 # Changelog
 
+## [0.43.1] - 2026-04-29
+
+### Bug Fixes
+
+- *(cli)* Char-aware truncation in truncate_command
+
 ## [0.43.0] - 2026-04-28
 
 ### Bug Fixes
