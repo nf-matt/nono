@@ -446,27 +446,34 @@ pub(crate) fn retains_missing_exact_file_grants() -> bool {
     cfg!(target_os = "macos")
 }
 
-/// Extension trait for CapabilitySet to add CLI-specific construction methods.
+/// Result of building a CapabilitySet from CLI args or a profile.
 ///
-/// Both methods return `(CapabilitySet, bool)` where the bool indicates whether
-/// `policy::apply_unlink_overrides()` must be called after all writable paths
-/// are finalized (including CWD). The caller is responsible for calling it.
+/// `needs_unlink_overrides` defers `policy::apply_unlink_overrides()` until the
+/// caller has added every writable path (including CWD).
+///
+/// `deny_paths` carries the resolved policy-deny set (groups + profile
+/// `add_deny_access`) so the caller can re-run `validate_deny_overlaps` after
+/// it adds further allow paths (e.g. `--allow-cwd`). Without this, a deny
+/// configured by the profile can silently be neutralised on Linux when a later
+/// allow path covers it — which Landlock cannot enforce.
+#[derive(Debug)]
+pub struct PreparedCaps {
+    pub caps: CapabilitySet,
+    pub needs_unlink_overrides: bool,
+    pub deny_paths: Vec<PathBuf>,
+}
+
+/// Extension trait for CapabilitySet to add CLI-specific construction methods.
 pub trait CapabilitySetExt {
     /// Create a capability set from CLI sandbox arguments.
-    /// Returns `(caps, needs_unlink_overrides)`.
-    fn from_args(args: &SandboxArgs) -> Result<(CapabilitySet, bool)>;
+    fn from_args(args: &SandboxArgs) -> Result<PreparedCaps>;
 
     /// Create a capability set from a profile with CLI overrides.
-    /// Returns `(caps, needs_unlink_overrides)`.
-    fn from_profile(
-        profile: &Profile,
-        workdir: &Path,
-        args: &SandboxArgs,
-    ) -> Result<(CapabilitySet, bool)>;
+    fn from_profile(profile: &Profile, workdir: &Path, args: &SandboxArgs) -> Result<PreparedCaps>;
 }
 
 impl CapabilitySetExt for CapabilitySet {
-    fn from_args(args: &SandboxArgs) -> Result<(CapabilitySet, bool)> {
+    fn from_args(args: &SandboxArgs) -> Result<PreparedCaps> {
         let mut caps = CapabilitySet::new();
         let protected_roots = ProtectedRoots::from_defaults()?;
 
@@ -561,14 +568,14 @@ impl CapabilitySetExt for CapabilitySet {
 
         finalize_caps(&mut caps, &mut resolved, &loaded_policy, args, &[])?;
 
-        Ok((caps, resolved.needs_unlink_overrides))
+        Ok(PreparedCaps {
+            caps,
+            needs_unlink_overrides: resolved.needs_unlink_overrides,
+            deny_paths: resolved.deny_paths,
+        })
     }
 
-    fn from_profile(
-        profile: &Profile,
-        workdir: &Path,
-        args: &SandboxArgs,
-    ) -> Result<(CapabilitySet, bool)> {
+    fn from_profile(profile: &Profile, workdir: &Path, args: &SandboxArgs) -> Result<PreparedCaps> {
         let mut caps = CapabilitySet::new();
         let protected_roots = ProtectedRoots::from_defaults()?;
         let allow_parent_of_protected = profile.allow_parent_of_protected.unwrap_or(false);
@@ -953,7 +960,11 @@ impl CapabilitySetExt for CapabilitySet {
             &profile_overrides,
         )?;
 
-        Ok((caps, resolved.needs_unlink_overrides))
+        Ok(PreparedCaps {
+            caps,
+            needs_unlink_overrides: resolved.needs_unlink_overrides,
+            deny_paths: resolved.deny_paths,
+        })
     }
 }
 
@@ -1117,7 +1128,16 @@ mod tests {
     }
 
     fn from_args_locked(args: &SandboxArgs) -> Result<(CapabilitySet, bool)> {
-        with_env_lock(|| CapabilitySet::from_args(args))
+        with_env_lock(|| {
+            CapabilitySet::from_args(args).map(|prepared| {
+                let PreparedCaps {
+                    caps,
+                    needs_unlink_overrides,
+                    ..
+                } = prepared;
+                (caps, needs_unlink_overrides)
+            })
+        })
     }
 
     fn from_profile_locked(
@@ -1125,7 +1145,16 @@ mod tests {
         workdir: &Path,
         args: &SandboxArgs,
     ) -> Result<(CapabilitySet, bool)> {
-        with_env_lock(|| CapabilitySet::from_profile(profile, workdir, args))
+        with_env_lock(|| {
+            CapabilitySet::from_profile(profile, workdir, args).map(|prepared| {
+                let PreparedCaps {
+                    caps,
+                    needs_unlink_overrides,
+                    ..
+                } = prepared;
+                (caps, needs_unlink_overrides)
+            })
+        })
     }
 
     fn sandbox_args() -> SandboxArgs {
@@ -1196,7 +1225,8 @@ mod tests {
     fn test_from_args_uses_default_profile_groups_for_runtime_policy() {
         with_env_lock(|| {
             let args = sandbox_args();
-            let (caps, _) = CapabilitySet::from_args(&args).expect("build caps from args");
+            let PreparedCaps { caps, .. } =
+                CapabilitySet::from_args(&args).expect("build caps from args");
 
             let policy = crate::policy::load_embedded_policy().expect("load embedded policy");
             let default_groups = default_profile_groups().expect("get default profile groups");
@@ -1240,7 +1270,7 @@ mod tests {
 
         let result = CapabilitySet::from_args(&args);
 
-        let (caps, _) = result.expect(
+        let PreparedCaps { caps, .. } = result.expect(
             "from_args should succeed when HOME is nested under TMPDIR and the user grants a sibling path",
         );
         let allowed_canonical = allowed.canonicalize().expect("canonicalize allowed dir");
@@ -1587,6 +1617,75 @@ mod tests {
         assert_eq!(read_cap.access, AccessMode::Read);
         assert_eq!(write_cap.access, AccessMode::Write);
         assert_eq!(rw_cap.access, AccessMode::ReadWrite);
+    }
+
+    /// Regression test for the `--allow-cwd` deny-bypass bug.
+    ///
+    /// A profile that denies `$WORKDIR/.ssh` must not be silently neutralised
+    /// when the caller adds the workdir as an allow path *after* `from_profile`
+    /// returns (which is what `--allow-cwd` does in `prepare_sandbox`). The
+    /// fix exposes `PreparedCaps::deny_paths` so the caller can re-run
+    /// `validate_deny_overlaps` against the full set of grants and fail closed
+    /// on Linux.
+    #[cfg(target_os = "linux")]
+    #[test]
+    fn test_prepared_caps_deny_paths_catch_post_profile_cwd_overlap() {
+        let dir = tempdir().expect("tmpdir");
+        let workdir = dir.path().join("project");
+        let denied = workdir.join(".ssh");
+        std::fs::create_dir_all(&denied).expect("mkdir denied child");
+
+        // Exclude `system_write_linux` (default group) — it grants write to
+        // `/tmp`, which the test's tempdir lives under. Without the exclusion
+        // the *initial* validate_deny_overlaps inside from_profile fires on
+        // that group's `/tmp` allow vs our deny under `/tmp/.../.ssh`, before
+        // we ever get to exercise the post-CWD validation that is the actual
+        // subject of this regression.
+        let profile_path = dir.path().join("post-cwd-deny.json");
+        std::fs::write(
+            &profile_path,
+            format!(
+                r#"{{
+                    "meta": {{ "name": "post-cwd-deny" }},
+                    "policy": {{
+                        "exclude_groups": ["system_write_linux"],
+                        "add_deny_access": ["{}"]
+                    }}
+                }}"#,
+                denied.display()
+            ),
+        )
+        .expect("write profile");
+        let profile = crate::profile::load_profile_from_path(&profile_path).expect("load profile");
+
+        with_env_lock(|| {
+            // from_profile succeeds because CWD is not yet present in caps.
+            let prepared = CapabilitySet::from_profile(&profile, &workdir, &sandbox_args())
+                .expect("profile builds (no CWD allow yet)");
+
+            assert!(
+                prepared.deny_paths.iter().any(|p| p == &denied),
+                "PreparedCaps::deny_paths must include profile add_deny_access entries; \
+                 got {:?}",
+                prepared.deny_paths,
+            );
+
+            // Simulate the --allow-cwd grant added by prepare_sandbox.
+            let mut caps = prepared.caps;
+            let cwd_canonical = workdir.canonicalize().expect("canonicalize workdir");
+            let cap = nono::FsCapability::new_dir(cwd_canonical, AccessMode::ReadWrite)
+                .expect("build cwd cap");
+            caps.add_fs(cap);
+
+            // Re-validating against the same deny set must now reject the
+            // configuration: Landlock cannot enforce a deny under an allow.
+            let err = crate::policy::validate_deny_overlaps(&prepared.deny_paths, &caps)
+                .expect_err("post-CWD validation must fail on linux");
+            assert!(
+                err.to_string().contains("Landlock deny-overlap"),
+                "unexpected error: {err}"
+            );
+        });
     }
 
     #[cfg(target_os = "linux")]

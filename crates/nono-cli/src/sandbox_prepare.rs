@@ -505,11 +505,12 @@ pub(crate) fn resolve_detached_cwd_prompt_response(
         ..
     } = prepare_profile_for_preflight(args, &workdir)?;
 
-    let (caps, _) = if let Some(ref profile) = loaded_profile {
+    let prepared = if let Some(ref profile) = loaded_profile {
         CapabilitySet::from_profile(profile, &workdir, args)?
     } else {
         CapabilitySet::from_args(args)?
     };
+    let caps = prepared.caps;
 
     let Some(request) =
         pending_cwd_access_request(&caps, &workdir, profile_workdir_access.as_ref())?
@@ -1115,11 +1116,17 @@ pub(crate) fn prepare_sandbox(args: &SandboxArgs, silent: bool) -> Result<Prepar
         }
     }
 
-    let (mut caps, needs_unlink_overrides) = if let Some(ref profile) = loaded_profile {
+    let prepared = if let Some(ref profile) = loaded_profile {
         CapabilitySet::from_profile(profile, &workdir, args)?
     } else {
         CapabilitySet::from_args(args)?
     };
+    let mut caps = prepared.caps;
+    let needs_unlink_overrides = prepared.needs_unlink_overrides;
+    // Resolved policy denies (groups + profile add_deny_access). Used to
+    // re-run validate_deny_overlaps after CWD/pack grants are added below,
+    // because Landlock cannot enforce a deny that lives under a later allow.
+    let prepared_deny_paths = prepared.deny_paths;
 
     // Apply raw Seatbelt rules from the profile (macOS only).
     #[cfg(target_os = "macos")]
@@ -1224,17 +1231,13 @@ pub(crate) fn prepare_sandbox(args: &SandboxArgs, silent: bool) -> Result<Prepar
         caps.deduplicate();
     }
 
-    let active_groups = if let Some(profile) = loaded_profile
-        .as_ref()
-        .filter(|profile| !profile.security.groups.is_empty())
-    {
-        profile.security.groups.clone()
-    } else {
-        capability_ext::default_profile_groups()?
-    };
-    let loaded_policy = policy::load_embedded_policy()?;
-    let deny_paths = policy::resolve_deny_paths_for_groups(&loaded_policy, &active_groups)?;
-    policy::validate_deny_overlaps(&deny_paths, &caps)?;
+    // Re-validate against the full deny set (groups + profile add_deny_access)
+    // now that CWD, pack dirs, and any GPU/launch-services grants have been
+    // added on top of the caps produced by from_profile/from_args. The initial
+    // validation inside finalize_caps did not see those later grants, so a
+    // profile deny that lands under e.g. --allow-cwd would otherwise be a
+    // silent no-op on Linux (Landlock cannot deny under an allow).
+    policy::validate_deny_overlaps(&prepared_deny_paths, &caps)?;
     let protected_roots = protected_paths::ProtectedRoots::from_defaults()?;
     let allow_parent_of_protected = profile_allow_parent_of_protected;
     protected_paths::validate_caps_against_protected_roots(
