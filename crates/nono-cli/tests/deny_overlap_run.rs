@@ -76,6 +76,7 @@ fn run_allow_cwd_with_profile_deny_under_workdir_fails_closed() {
     let profile_json = format!(
         r#"{{
             "meta": {{ "name": "deny-overlap-repro" }},
+            "workdir": {{ "access": "readwrite" }},
             "policy": {{
                 "add_deny_access": ["{workspace}/.ssh"]
             }}
