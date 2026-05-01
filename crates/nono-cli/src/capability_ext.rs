@@ -1635,6 +1635,12 @@ mod tests {
         let denied = workdir.join(".ssh");
         std::fs::create_dir_all(&denied).expect("mkdir denied child");
 
+        // Exclude `system_write_linux` (default group) — it grants write to
+        // `/tmp`, which the test's tempdir lives under. Without the exclusion
+        // the *initial* validate_deny_overlaps inside from_profile fires on
+        // that group's `/tmp` allow vs our deny under `/tmp/.../.ssh`, before
+        // we ever get to exercise the post-CWD validation that is the actual
+        // subject of this regression.
         let profile_path = dir.path().join("post-cwd-deny.json");
         std::fs::write(
             &profile_path,
@@ -1642,6 +1648,7 @@ mod tests {
                 r#"{{
                     "meta": {{ "name": "post-cwd-deny" }},
                     "policy": {{
+                        "exclude_groups": ["system_write_linux"],
                         "add_deny_access": ["{}"]
                     }}
                 }}"#,
